@@ -1,0 +1,17 @@
+pyserial
+requests
+PyYAML
+# Add other libraries as you implement components:
+# Pillow # Often needed for image processing
+# opencv-python # For camera/vision processing
+# numpy # Common for numerical operations
+# scipy # Common for scientific/numerical operations
+# ikpy # For Inverse Kinematics
+# [Specific 3D camera SDK library, e.g., pyrealsense2]
+# [Specific force sensor library]
+# [Specific encoder library]
+# [AI Planning library]
+# [Specific NLU library, e.g., spacy, transformers]
+# [Specific TTS library if needed on Pi, e.g., pyttsx3, gTTS]
+# google-generativeai # Official Google client library (alternative to requests for API calls)
+# Flask or socketserver # If implementing the Wi-Fi server manually

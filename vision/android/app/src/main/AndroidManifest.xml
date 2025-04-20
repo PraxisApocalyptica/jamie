@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Permissions needed for the robot vision/interaction app -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/> <!-- Useful for discovery -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/> <!-- required="false" if camera is not strictly essential -->
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
+    <uses-feature android:name="android.hardware.camera.front" android:required="false"/> <!-- If using front cam -->
+
+    <!-- Permissions for ARCore (if used) -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="com.google.ar.core.depth" android:required="false" /> <!-- Enable depth usage -->
+    <uses-feature android:name="com.google.ar.core" android:required="true" /> <!-- ARCore core feature -->
+
+
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Jamie"
+        android:usesCleartextTraffic="true"> <!-- Needed for unencrypted HTTP/TCP on local network for debugging, remove in production -->
+
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.Jamie">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- You might define services here for tasks running in background -->
+        <!-- <service android:name=".services.RobotControlService" android:exported="false"/> -->
+
+         <!-- ARCore configuration (if using ARCore) -->
+        <meta-data android:name="com.google.ar.core" android:value="required" />
+
+    </application>
+</manifest>

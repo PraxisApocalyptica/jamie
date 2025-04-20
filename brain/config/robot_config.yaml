@@ -1,0 +1,104 @@
+# --- Robot Configuration ---
+
+motion:
+  serial_port: /dev/ttyACM0 # <<<<< Set your Arduino's serial port >>>>>
+  serial_baud_rate: 115200
+
+vision:
+  wifi_host: 0.0.0.0        # Brain listens on all interfaces
+  wifi_port: 5000         # Port for Vision (Android/iOS) to connect to
+
+api_keys:
+  gemini: "YOUR_GEMINI_API_KEY" # <<<<< Replace with your actual Gemini API Key >>>>>
+  # weather: "YOUR_WEATHER_API_KEY" # Example for ExternalApiClient
+
+ai:
+  gemini:
+    max_tokens: 150       # Max tokens for AI responses
+    temperature: 0.7
+    max_history_turns: 20 # Max turns to keep in conversation history
+  # nlu:
+  #   model_path: "path/to/nlu/model"
+  # dialogue:
+  #   # Dialogue specific parameters
+  # personality:
+  #   # Personality traits or parameters
+
+sensors:
+  # Configure direct sensors on Brain
+  # 3d_camera:
+  #   id: 0
+  #   type: realsense # e.g., realsense, kinect, zed
+  #   calibration_file: "calibration/camera_intrinsics.yaml"
+  # encoders:
+  #   type: "quadrature"
+  #   pins: { left: {a: 1, b: 2}, right: {a: 3, b: 4} } # Example GPIO pins if direct
+  # force_sensor:
+  #   pin: 0 # Example Analog pin if Arduino reads it, or GPIO if direct
+
+robot_parameters:
+  # Physical parameters for robotics calculations
+  # arm:
+  #   base_height: 0.1 # meters
+  #   link1_length: 0.3 # meters
+  #   link2_length: 0.2 # meters
+  #   link3_length: 0.1 # meters
+  #   gripper_offset: 0.05 # meters from wrist to gripper tip
+  #   gripper_open_angle: 10 # degrees
+  #   gripper_close_angle: 60 # degrees
+  # base:
+  #   wheel_radius: 0.05 # meters
+  #   wheel_base: 0.2 # meters (distance between wheels)
+  # calibration:
+  #   phone_to_base_transform_file: "calibration/phone_to_base_transform.yaml"
+  #   base_to_arm_transform_file: "calibration/base_to_arm_transform.yaml"
+  # grasp:
+  #   force_threshold: 1.5 # Newtons, threshold to detect successful grasp
+  #   approach_distance: 0.1 # meters, distance to approach before final grasp move
+
+task_manager:
+  step_timeout_sec: 15.0 # Max time to wait for feedback on a step before considering it failed
+  # Add other task manager parameters
+
+power:
+  low_battery_threshold: 0.15 # 15%, example threshold to trigger finding charger
+```
+
+echo "brain/config/robot_config.yaml created."
+
+# brain/calibration/* (Placeholder files)
+echo "Creating brain/calibration placeholder files..."
+touch "$PROJECT_ROOT/brain/calibration/camera_intrinsics.yaml"
+touch "$PROJECT_ROOT/brain/calibration/base_to_arm_transform.yaml"
+touch "$PROJECT_ROOT/brain/calibration/phone_to_base_transform.yaml"
+touch "$PROJECT_ROOT/brain/calibration/encoder_params.yaml"
+echo "brain/calibration placeholder files created."
+
+# brain/models/jamie_arm.urdf (Placeholder)
+echo "Creating brain/models/jamie_arm.urdf placeholder file..."
+cat << 'EOF' > "$PROJECT_ROOT/brain/models/jamie_arm.urdf"
+<?xml version="1.0"?>
+<robot name="jamie_arm">
+  <!-- This is a placeholder file -->
+  <!-- Define your robotic arm's links and joints here in URDF format -->
+  <!-- This model is essential for Inverse Kinematics calculations -->
+  <link name="base_link"/>
+  <!-- Add joints and links for your 6 DOF arm -->
+  <!-- Example: -->
+  <!-- <joint name="base_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="link1"/>
+    <origin xyz="0 0 0.1" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.14" upper="3.14" effort="100" velocity="1"/>
+  </joint>
+  <link name="link1">
+    <visual>
+      <geometry>
+        <cylinder length="0.3" radius="0.05"/>
+      </geometry>
+    </visual>
+  </link> -->
+  <!-- ... continue for all links and joints ... -->
+  <link name="gripper_tip"/>
+</robot>
