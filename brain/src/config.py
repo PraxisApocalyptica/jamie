@@ -2,7 +2,7 @@ import yaml
 import os
 from typing import Dict, Any
 
-def load_config(filepath: str = "config/robot_config.yaml") -> Dict[str, Any]:
+def load_config(filepath: str = "config/jamie.yaml") -> Dict[str, Any]:
     """Loads configuration from a YAML file."""
     try:
         with open(filepath, 'r') as file:
@@ -27,19 +27,3 @@ def load_config(filepath: str = "config/robot_config.yaml") -> Dict[str, Any]:
         print(f"Error parsing configuration file {os.path.abspath(filepath)}: {e}")
         # Return an empty dict or raise an error
         raise ValueError(f"Error parsing configuration file: {e}") from e
-
-# Example of accessing config (in main.py or other modules)
-# config = load_config()
-# arduino_port = config['motion']['serial_port']
-# gemini_key = config['api_keys']['gemini']
-```
-
-echo "brain/src/config.py created."
-
-# brain/src/communication/__init__.py
-echo "Creating brain/src/communication/__init__.py file..."
-cat << 'EOF' > "$PROJECT_ROOT/brain/src/communication/__init__.py"
-# This file makes 'communication' a Python package
-# You might import key classes here for easier access
-# from .arduino_serial import ArduinoSerialCommunicator
-# from .phone_wifi_server import PhoneWifiServer

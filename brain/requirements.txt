@@ -13,5 +13,5 @@ PyYAML
 # [AI Planning library]
 # [Specific NLU library, e.g., spacy, transformers]
 # [Specific TTS library if needed on Pi, e.g., pyttsx3, gTTS]
-# google-generativeai # Official Google client library (alternative to requests for API calls)
+google-generativeai # Official Google client library (alternative to requests for API calls)
 # Flask or socketserver # If implementing the Wi-Fi server manually
