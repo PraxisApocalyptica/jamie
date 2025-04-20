@@ -1,4 +1,4 @@
-# Jamie: The Robotic Friend Project
+# Jamie: The Robotic Companion
 
 This repository contains the code and documentation for Jamie, a mobile robotic companion designed for interaction, perception, and manipulation in a home environment. Named after my pet, Jamie aims to be a friendly assistant.
 
@@ -10,8 +10,8 @@ The project utilizes a multi-device architecture:
 **Project Goal:**
 The long-term aspiration is to create a robot capable of natural language interaction, understanding its environment, navigating autonomously, and manipulating objects in the real world to act as a helpful and engaging companion. The aim is to achieve a high level of reliability for these tasks within the house environment.
 
-**Content Creation:**
-Progress and development of this project are documented on a YouTube channel (Link to be added).
+**Additional Guide:**
+Progress and development of this project are documented on a YouTube channel: https://www.youtube.com/@doomsdayrobotics9170.
 
 **Current Status:**
 This is a highly ambitious, long-term hobby project and a work in progress. Code in this repository is a conceptual framework with placeholders and is not yet a fully functioning robot. Many components require significant implementation, calibration, and integration.
@@ -50,4 +50,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 Doomsday - [Your Contact Information, e.g., email, social media handle]
 
-[Link to your YouTube Channel]
+https://www.youtube.com/@doomsdayrobotics9170
