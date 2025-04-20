@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<robot name="jamie_arm">
+  <!-- This is a placeholder file -->
+  <!-- Define your robotic arm's links and joints here in URDF format -->
+  <!-- This model is essential for Inverse Kinematics calculations -->
+  <link name="base_link"/>
+  <!-- Add joints and links for your 6 DOF arm -->
+  <!-- Example: -->
+  <!-- <joint name="base_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="link1"/>
+    <origin xyz="0 0 0.1" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.14" upper="3.14" effort="100" velocity="1"/>
+  </joint>
+  <link name="link1">
+    <visual>
+      <geometry>
+        <cylinder length="0.3" radius="0.05"/>
+      </geometry>
+    </visual>
+  </link> -->
+  <!-- ... continue for all links and joints ... -->
+  <link name="gripper_tip"/>
+</robot>
