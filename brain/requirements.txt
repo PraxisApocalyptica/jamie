@@ -1,6 +1,7 @@
 pyserial
 requests
 PyYAML
+dotenv
 # Add other libraries as you implement components:
 # Pillow # Often needed for image processing
 # opencv-python # For camera/vision processing

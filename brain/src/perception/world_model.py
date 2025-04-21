@@ -8,7 +8,7 @@
 # - State of direct sensors (bump sensors, force sensor, battery) - updated by communication handlers or hardware interfaces
 # - State of actuators (arm joint angles, wheel velocities) - updated based on commanded state or encoder feedback
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 class ObjectInfo:
     """Represents information about a detected object."""

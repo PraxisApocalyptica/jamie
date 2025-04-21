@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<robot name="jamie_arm">
+<robot name="arm">
   <!-- This is a placeholder file -->
   <!-- Define your robotic arm's links and joints here in URDF format -->
   <!-- This model is essential for Inverse Kinematics calculations -->
