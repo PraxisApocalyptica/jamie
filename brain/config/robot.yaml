@@ -1,5 +1,9 @@
 # --- Configuration ---
 
+robot:
+  name: Jamie
+  purpose: Robotic Friend
+
 motion:
   serial_port: /dev/ttyACM0 # <<<<< Set your Arduino's serial port >>>>>
   serial_baud_rate: 115200

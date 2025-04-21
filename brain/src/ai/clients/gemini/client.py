@@ -9,8 +9,8 @@ from google.api_core.exceptions import (
 )
 from typing import List, Dict, Any, Optional
 
-from ai.clients.constants import GEMINI as GeminiConstants
-from ai.clients.gemini.exceptions import (
+from src.ai.clients.constants import GEMINI as GeminiConstants
+from src.ai.clients.gemini.exceptions import (
     GeminiAPIError,           # Your custom base API error
     GeminiResponseParsingError, # Your custom parsing error (less needed with client library)
     GeminiBlockedError        # Your custom blocked error
@@ -31,10 +31,11 @@ class GeminiClient: # Renamed the class
     def __init__(
         self,
         api_key: str,
+        config,
         model_name: str = GeminiConstants.MODEL, # Use model name (e.g., "gemini-2.0-flash")
         max_output_tokens: int = 150,
         temperature: float = 0.7,
-        max_history_turns: Optional[int] = None # Manage history manually or let library handle
+        max_history_turns: Optional[int] = None, # Manage history manually or let library handle
     ) -> None:
         """
         Initializes the Gemini client using the official library.
@@ -60,6 +61,8 @@ class GeminiClient: # Renamed the class
         # Validate max_history_turns if managing manually
         if max_history_turns is not None and (not isinstance(max_history_turns, int) or max_history_turns < 0):
              raise ValueError("max_history_turns must be a non-negative integer or None.")
+
+        self.config=config
 
 
         self._api_key: str = api_key
@@ -237,99 +240,74 @@ class GeminiClient: # Renamed the class
         else:
              print("Model not initialized, cannot clear history.")
 
+    def start(self) -> None:
+        try:
+
+            # Simulate a conversation
+            print("\nStarting conversation (type 'exit' to exit)...")
+            history=" ".join(initial_history.format(
+                name=self.config.get('name'),
+                purpose=self.config.get('purpose')
+            ) for initial_history in GeminiConstants.HISTORY)
+            self.send_message(history)
+
+            while True:
+                user_input = input("You: ")
+                if user_input.lower() == 'exit':
+                    break
+                if user_input.lower() == 'clear history':
+                    self.clear_history()
+                    self.send_message(history)
+                    print("History cleared.")
+                    continue
+                if user_input.lower() == 'show history':
+                    print("--- History ---")
+                    history = self.get_history()
+                    if history:
+                        for i, turn in enumerate(history):
+                            # Handle accessing parts safely
+                            text_snippet = ""
+                            if 'parts' in turn and isinstance(turn['parts'], list):
+                                for part in turn['parts']:
+                                    if 'text' in part:
+                                        text_snippet += part['text']
+                                        break # Assume first text part is sufficient
+                            print(f"{i}: {turn.get('role', 'unknown')}: {text_snippet[:80]}...") # Print first 80 chars
+                    else:
+                        print("History is empty.")
+                    print("---------------")
+                    continue
+
+
+                try:
+                    # Send the message and get the response
+                    response = self.send_message(user_input)
+                    print(f"Robot: {response}")
+
+                except GeminiBlockedError as e:
+                    print(f"Robot: I cannot respond to that query. ({e})")
+                except GeminiAPIError as e:
+                    print(f"Robot encountered an API error: {e}")
+                    # In a real robot, you might speak an error message
+                except Exception as e:
+                    print(f"An unexpected error occurred during conversation: {e}")
+                    import traceback
+                    traceback.print_exc() # Print traceback
+
+                # Optional: Add a small delay between turns
+                # time.sleep(1.0)
+
+        except ValueError as e:
+            print(f"Client Initialization Error: {e}")
+        except ImportError as e:
+            print(f"Import Error: {e}. Make sure you have installed 'google-generativeai' and your local modules are correctly structured.")
+        except Exception as e:
+            print(f"An unexpected error occurred during setup or main execution: {e}")
+            import traceback
+            traceback.print_exc()
+
+        print("Conversation ended.")
+
     # You might add methods to save/load history to/from a file if needed for persistence
     # def save_history(self, filepath): ...
     # def load_history(self, filepath): ...
-
-# --- Example Usage (Demonstrates how to use the class) ---
-# This example is similar to the previous one but uses the new class and exception names.
-if __name__ == "__main__":
-    # This block only runs when you execute this script directly
-
-    # <<<<< IMPORTANT: Replace with your actual key or load securely >>>>>
-    # Example of loading from environment variable (safer):
-    # import os
-    # api_key = os.environ.get("GEMINI_API_KEY")
-    # if not api_key:
-    #     print("Error: GEMINI_API_KEY environment variable not set.")
-    #     print("Please set it (e.g., export GEMINI_API_KEY='your_key') or replace the placeholder.")
-    #     exit(1)
-    # Using a placeholder for this example. In your robot, load from config.
-    api_key = "GEMINI_SECRET_KEY"
-    # api_key = ConfigParser().get_config("GEMINI_SECRET_KEY")
-
-    # Initialize the client
-    try:
-        # Use the model name from constants or configure directly
-        model_to_use = GeminiConstants.MODEL # Example: Using a potentially different model name
-        # Make sure max_output_tokens is within the model's limits
-
-        gemini_client = GeminiClient(
-            api_key=api_key,
-            model_name=model_to_use,
-            max_output_tokens=100, # Shorter responses for example
-            temperature=0.8,
-            max_history_turns=10 # Keep last 10 turns
-        )
-        print(f"Gemini Client initialized using model: {model_to_use}")
-
-        # Simulate a conversation
-        print("\nStarting test conversation (type 'exit' to exit)...")
-        gemini_client.send_message(" ".join(GeminiConstants.HISTORY))
-
-        while True:
-            user_input = input("You: ")
-            if user_input.lower() == 'exit':
-                break
-            if user_input.lower() == 'clear history':
-                gemini_client.clear_history()
-                gemini_client.send_message(" ".join(GeminiConstants.HISTORY))
-                print("History cleared.")
-                continue
-            if user_input.lower() == 'show history':
-                print("--- History ---")
-                history = gemini_client.get_history()
-                if history:
-                    for i, turn in enumerate(history):
-                       # Handle accessing parts safely
-                       text_snippet = ""
-                       if 'parts' in turn and isinstance(turn['parts'], list):
-                           for part in turn['parts']:
-                               if 'text' in part:
-                                   text_snippet += part['text']
-                                   break # Assume first text part is sufficient
-                       print(f"{i}: {turn.get('role', 'unknown')}: {text_snippet[:80]}...") # Print first 80 chars
-                else:
-                    print("History is empty.")
-                print("---------------")
-                continue
-
-
-            try:
-                # Send the message and get the response
-                response = gemini_client.send_message(user_input)
-                print(f"Robot: {response}")
-
-            except GeminiBlockedError as e:
-                 print(f"Robot: I cannot respond to that query. ({e})")
-            except GeminiAPIError as e:
-                print(f"Robot encountered an API error: {e}")
-                # In a real robot, you might speak an error message
-            except Exception as e:
-                print(f"An unexpected error occurred during conversation: {e}")
-                import traceback
-                traceback.print_exc() # Print traceback
-
-            # Optional: Add a small delay between turns
-            # time.sleep(1.0)
-
-    except ValueError as e:
-        print(f"Client Initialization Error: {e}")
-    except ImportError as e:
-         print(f"Import Error: {e}. Make sure you have installed 'google-generativeai' and your local modules are correctly structured.")
-    except Exception as e:
-        print(f"An unexpected error occurred during setup or main execution: {e}")
-        import traceback
-        traceback.print_exc()
-
-    print("Conversation ended.")

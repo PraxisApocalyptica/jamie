@@ -1,6 +1,7 @@
 import time
 import threading
 import traceback # Import for logging errors
+from dotenv import load_dotenv
 from typing import Dict, Any
 
 # Import your modules from src/
@@ -17,15 +18,18 @@ from src.config import load_config
 # from src.robotics.path_planning import PathPlanning
 # from src.robotics.grasp_planning import GraspPlanning
 # from src.ai.nlu_processor import NLUProcessor
-# from src.ai.dialogue_manager import DialogueManager
+from src.ai.dialogue_manager import DialogueManager
 # from src.ai.personality import Personality # If separate
-# from src.ai.gemini_client import GeminiAPIClient # For general chat
+from src.ai.clients.gemini.client import GeminiClient # For general chat
 
 # --- Main Robot Class ---
-class JamieRobot:
-    def __init__(self, config_path="config/robot_config.yaml"):
-        print("Initializing Jamie Robot Brain...")
+class ApocalypticaRobot:
+    def __init__(self, config_path="config/robot.yaml"):
+        load_dotenv()
         self.config = load_config(config_path)
+        robot = self.config.get('robot', {})
+        self.name = robot.get('name', 'Jamie')
+        print(f"Initializing {self.name}...")
 
         # --- Communication ---
         self.motion_comm = ArduinoSerialCommunicator(
@@ -42,14 +46,14 @@ class JamieRobot:
         self.world_model = WorldModel() # Manages robot state, map, objects
 
         # --- AI and Task Management ---
-        # self.gemini_client = GeminiAPIClient(
-        #    api_key=self.config['api_keys']['gemini'],
-        #    max_output_tokens=self.config['ai']['gemini'].get('max_tokens', 150),
-        #    temperature=self.config['ai']['gemini'].get('temperature', 0.7),
-        #    max_history_turns=self.config['ai']['gemini'].get('max_history_turns', 20)
-        # ) # For general chat
+        self.gemini_client = GeminiClient(
+           api_key= os.getenv("GEMINI_SECRET_KEY") or self.config['api_keys']['gemini'],
+           max_output_tokens=self.config['ai']['gemini'].get('max_tokens', 150),
+           temperature=self.config['ai']['gemini'].get('temperature', 0.7),
+           max_history_turns=self.config['ai']['gemini'].get('max_history_turns', 20),
+           config=self.config.get('robot', {})
+        )
         # self.nlu_processor = NLUProcessor() # For parsing commands from text
-        # self.dialogue_manager = DialogueManager(gemini_client=self.gemini_client, vision_communicator=self.vision_comm) # Manages conversation flow and speaks via Vision
         self.task_manager = TaskManager(
             world_model=self.world_model,
             motion_communicator=self.motion_comm,
@@ -60,6 +64,12 @@ class JamieRobot:
             # dialogue_manager=self.dialogue_manager, # To generate spoken responses
             # vision_communicator=self.vision_comm, # To send commands/status to Vision
         )
+        self.dialogue_manager = DialogueManager(
+            gemini_client=self.gemini_client,
+            vision_communicator=self.vision_comm,
+            world_model=self.world_model,
+            task_manager=self.task_manager
+        ) # Manages conversation flow and speaks via Vision
 
         # --- Hardware Interfaces (Direct to Pi) ---
         # self.three_d_camera = ThreeDCamera(camera_id=self.config['sensors']['3d_camera']['id'])
@@ -71,7 +81,7 @@ class JamieRobot:
         # self.slam_localization = SlamLocalization(world_model=self.world_model, ...)
 
 
-        print("Jamie Robot Brain initialized.")
+        print(f"{self.name} initialized.")
 
     def _handle_vision_data(self, data: Dict[str, Any]) -> None:
         """Callback method to process data received from the Vision (Android/iOS) app."""
@@ -156,7 +166,7 @@ class JamieRobot:
 
 
     def run(self):
-        print("Starting Jamie Robot Brain Main Loop...")
+        print(f"Starting {self.name}...")
 
         # --- Connect Components ---
         # Connect to Arduino, register callback for incoming data
@@ -168,8 +178,8 @@ class JamieRobot:
         time.sleep(2)
 
         if not self.motion_comm.is_connected:
-            print("Failed to connect to Motion controller. Exiting.")
-            return
+            print("Failed to connect to Motion controller. Movement is unavailable.")
+            # return
         # is_listening check is done inside vision_comm.start()
 
         # TODO: Connect/Initialize other hardware interfaces (3D camera, encoders)
@@ -238,15 +248,15 @@ class JamieRobot:
             # TODO: Shut down other hardware interfaces (3D camera, etc.)
             # self.three_d_camera.shutdown()
 
-            print("Brain shutdown complete.")
+            print("Shutdown complete.")
 
 
 # --- Script Entry Point ---
 if __name__ == "__main__":
     # Ensure working directory is the root of the repo or adjust config path
     # The main script is in jamie/brain/src/, config is in jamie/brain/config/
-    # So the path relative to main.py is ../config/robot_config.yaml
-    config_file_relative_path = "../config/robot_config.yaml"
+    # So the path relative to main.py is ../config/robot.yaml
+    config_file_relative_path = "../config/robot.yaml"
 
     # Add a check if running from the correct directory (optional but helpful)
     import os
@@ -260,7 +270,7 @@ if __name__ == "__main__":
         print(f"Please ensure the script is run from the correct location (e.g., 'cd jamie/brain' then 'python src/main.py')")
         exit(1)
 
-    robot = JamieRobot(config_path=config_file_abs_path) # Pass absolute path
+    robot = ApocalypticaRobot(config_path=config_file_abs_path) # Pass absolute path
 
     # Start the robot's main loop
     robot.run()

@@ -48,15 +48,3 @@ class ExternalApiClient:
 # # location = ... # Extract location from NLU entities
 # # weather_info = self.external_api_client.get_weather(location)
 # # self.speak(weather_info) # Send text to Vision for TTS
-```
-
-echo "brain/src/communication/external_api_client.py created."
-
-# brain/src/hardware_interfaces/__init__.py
-echo "Creating brain/src/hardware_interfaces/__init__.py file..."
-cat << 'EOF' > "$PROJECT_ROOT/brain/src/hardware_interfaces/__init__.py"
-# This file makes 'hardware_interfaces' a Python package
-# This package contains modules for hardware connected directly to the Brain (Pi/Jetson)
-# from .three_d_camera import ThreeDCamera
-# from .encoder_reader import EncoderReader
-# from .force_sensor import ForceSensor
