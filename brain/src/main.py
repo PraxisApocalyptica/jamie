@@ -50,7 +50,7 @@ class ApocalypticaRobot:
         # --- World Model ---
         self.world_model = WorldModel() # Manages robot state, map, objects
 
-        gtts_tts_client = GttsTTSClient(lang="en", default_playback_speed=1.2)
+        gtts_tts_client = GttsTTSClient(lang="en", default_playback_speed=1.15)
 
         # --- AI and Task Management ---
         self.gemini_client = GeminiClient(
