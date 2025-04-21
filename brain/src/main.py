@@ -1,6 +1,8 @@
 import time
+import logging
 import threading
 import traceback # Import for logging errors
+
 from dotenv import load_dotenv
 from typing import Dict, Any
 
@@ -9,6 +11,7 @@ from src.communication.arduino_serial import ArduinoSerialCommunicator
 from src.communication.phone_wifi_server import PhoneWifiServer
 from src.perception.world_model import WorldModel
 from src.ai.task_manager import TaskManager
+from src.handlers.log_handler import LogHandler 
 from src.config import load_config
 # Import other modules as you implement them:
 # from src.hardware_interfaces.three_d_camera import ThreeDCamera
@@ -25,11 +28,12 @@ from src.ai.clients.gemini.client import GeminiClient # For general chat
 # --- Main Robot Class ---
 class ApocalypticaRobot:
     def __init__(self, config_path="config/robot.yaml"):
+        self._logger = logging.getLogger(self.__class__.__name__)
         load_dotenv()
         self.config = load_config(config_path)
         robot = self.config.get('robot', {})
         self.name = robot.get('name', 'Jamie')
-        print(f"Initializing {self.name}...")
+        self._logger.info(f"Initializing {self.name}...")
 
         # --- Communication ---
         self.motion_comm = ArduinoSerialCommunicator(
@@ -81,7 +85,7 @@ class ApocalypticaRobot:
         # self.slam_localization = SlamLocalization(world_model=self.world_model, ...)
 
 
-        print(f"{self.name} initialized.")
+        self._logger.info(f"{self.name} initialized.")
 
     def _handle_vision_data(self, data: Dict[str, Any]) -> None:
         """Callback method to process data received from the Vision (Android/iOS) app."""
@@ -90,7 +94,7 @@ class ApocalypticaRobot:
         # Delegate complex tasks (like NLU, Task execution) to the main loop or TaskManager.
 
         # Add logging to see what data is received
-        print(f"Received data from Vision: {data}")
+        self._logger.debug(f"Received data from Vision: {data}")
 
         data_type = data.get("type")
 
@@ -118,7 +122,7 @@ class ApocalypticaRobot:
             command_entities = data.get("entities") # Optional: if phone does initial NLU
 
             if command_text:
-                 print(f"Received command text from Vision: {command_text}")
+                 self._logger.debug(f"Received command text from Vision: {command_text}")
                  # <<<<< PROCESS COMMAND >>>>>
                  # 1. If phone didn't do NLU, process it here:
                  #    intent, entities = self.nlu_processor.process(command_text)
@@ -128,7 +132,7 @@ class ApocalypticaRobot:
                  #    # self.task_manager.set_goal_from_command(intent, entities)
                  pass # Placeholder
             elif command_intent: # If phone sent pre-parsed intent
-                 print(f"Received parsed command from Vision: Intent='{command_intent}' Entities={command_entities}")
+                 self._logger.debug(f"Received parsed command from Vision: Intent='{command_intent}' Entities={command_entities}")
                  # <<<<< PROCESS PARSED COMMAND >>>>>
                  # self.dialogue_manager.handle_user_command(command_intent, command_entities, command_text=None)
                  # or self.task_manager.set_goal_from_command(command_intent, command_entities)
@@ -137,7 +141,7 @@ class ApocalypticaRobot:
         elif data_type == "speech_response_done":
              # Notification from Vision that it finished speaking a response sent earlier
              utterance_id = data.get("utterance_id")
-             print(f"Vision confirmed speaking done for utterance ID: {utterance_id}")
+             self._logger.debug(f"Vision confirmed speaking done for utterance ID: {utterance_id}")
              # TODO: Dialogue Manager or TaskManager might need this feedback to continue a turn or plan
              # self.dialogue_manager.on_speaking_finished(utterance_id) # Example
              pass # Placeholder
@@ -153,7 +157,7 @@ class ApocalypticaRobot:
         # Delegate complex tasks (like triggering reactions) to the main loop or TaskManager.
 
         # Add logging to see what data is received
-        print(f"Received data from Motion: {data}")
+        self._logger.debug(f"Received data from Motion: {data}")
 
         # Data is likely sensor readings (e.g., "SENSOR:pin:value") or acknowledgments (e.g., "NAV_COMPLETE")
         # <<<<< PROCESS ARDUINO DATA >>>>>
@@ -166,7 +170,7 @@ class ApocalypticaRobot:
 
 
     def run(self):
-        print(f"Starting {self.name}...")
+        self._logger.info(f"Starting {self.name}...")
 
         # --- Connect Components ---
         # Connect to Arduino, register callback for incoming data
@@ -178,19 +182,19 @@ class ApocalypticaRobot:
         time.sleep(2)
 
         if not self.motion_comm.is_connected:
-            print("Failed to connect to Motion controller. Movement is unavailable.")
+            self._logger.warning("Failed to connect to Motion controller. Movement is unavailable.")
             # return
         # is_listening check is done inside vision_comm.start()
 
         # TODO: Connect/Initialize other hardware interfaces (3D camera, encoders)
         # try:
         #     self.three_d_camera.initialize()
-        #     print("3D Camera initialized.")
+        #     self._logger.debug("3D Camera initialized.")
         # except Exception as e:
-        #     print(f"Warning: Failed to initialize 3D Camera: {e}")
+        #     self._logger.warning(f"Warning: Failed to initialize 3D Camera: {e}")
 
 
-        print("All core communication components connected/started.")
+        self._logger.info("All core communication components connected/started.")
         # Optional: Send initial command to Motion (e.g., move arm to home position)
         # self.motion_comm.send_command("J:0:90\n") # Example home command
 
@@ -221,10 +225,10 @@ class ApocalypticaRobot:
                 time.sleep(0.05) # Adjust loop frequency (e.g., 20 Hz)
 
         except KeyboardInterrupt:
-            print("\nCtrl+C detected. Shutting down.")
+            self._logger.warning("\nCtrl+C detected. Shutting down.")
 
         except Exception as e:
-            print(f"\nAn unhandled error occurred in the main loop: {e}")
+            self._logger.critical(f"\nAn unhandled error occurred: {e}")
             import traceback
             traceback.print_exc() # Print traceback for debugging
             # Attempt to stop motors as a safety measure
@@ -235,7 +239,7 @@ class ApocalypticaRobot:
 
         finally:
             # --- Cleanup ---
-            print("Cleaning up...")
+            self._logger.debug("Cleaning up...")
             # Ensure robot is in a safe state
             self.motion_comm.send_command("STOP\n") # Stop base motors
             # TODO: Send command to move arm to a safe 'home' position
@@ -248,7 +252,7 @@ class ApocalypticaRobot:
             # TODO: Shut down other hardware interfaces (3D camera, etc.)
             # self.three_d_camera.shutdown()
 
-            print("Shutdown complete.")
+            self._logger.info("Shutdown complete.")
 
 
 # --- Script Entry Point ---
@@ -258,6 +262,9 @@ if __name__ == "__main__":
     # So the path relative to main.py is ../config/robot.yaml
     config_file_relative_path = "../config/robot.yaml"
 
+    logger_handler = LogHandler()
+    _logger = logger_handler.get_logger()
+
     # Add a check if running from the correct directory (optional but helpful)
     import os
     # Get the directory of the current script (brain/src/)
@@ -266,8 +273,8 @@ if __name__ == "__main__":
     config_file_abs_path = os.path.join(script_dir, config_file_relative_path)
 
     if not os.path.exists(config_file_abs_path):
-        print(f"Error: Configuration file not found at {config_file_abs_path}")
-        print(f"Please ensure the script is run from the correct location (e.g., 'cd jamie/brain' then 'python src/main.py')")
+        _logger.error(f"Error: Configuration file not found at {config_file_abs_path}")
+        _logger.warning(f"Please ensure the script is run from the correct location (e.g., 'cd jamie/brain' then 'python src/main.py')")
         exit(1)
 
     robot = ApocalypticaRobot(config_path=config_file_abs_path) # Pass absolute path

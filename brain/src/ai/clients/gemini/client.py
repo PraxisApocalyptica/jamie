@@ -1,4 +1,6 @@
 import google.generativeai as genai
+import logging
+
 from google.api_core.exceptions import (
     GoogleAPIError, # Base exception for google-api-core
     ClientError, # Client-side errors (e.g., invalid request, permissions)
@@ -15,11 +17,7 @@ from src.ai.clients.gemini.exceptions import (
     GeminiResponseParsingError, # Your custom parsing error (less needed with client library)
     GeminiBlockedError        # Your custom blocked error
 )
-# from src.utils.config_parser import ConfigParser
 
-# --- Configuration ---
-# The API key should be passed during initialization, preferably loaded
-# from environment variables or a secure config file outside of source control.
 
 # --- Gemini Client Class ---
 class GeminiClient: # Renamed the class
@@ -50,6 +48,7 @@ class GeminiClient: # Renamed the class
                                but manual trimming might still be needed for very long contexts or specific strategies.
                                Set to None to rely on the library's default context window.
         """
+        self._logger = logging.getLogger(self.__class__.__name__)
         if not api_key:
             raise ValueError("API key cannot be empty.")
         if not model_name:
@@ -63,6 +62,8 @@ class GeminiClient: # Renamed the class
              raise ValueError("max_history_turns must be a non-negative integer or None.")
 
         self.config=config
+        self.name=self.config.get('name')
+        self.purpose=self.config.get('purpose')
 
 
         self._api_key: str = api_key
@@ -146,7 +147,7 @@ class GeminiClient: # Renamed the class
 
             if model_response_text is None:
                 # Should not happen often if no exception was raised, but as a safeguard
-                 print("API returned response object but text was None.")
+                 self._logger.debug("API returned response object but text was None.")
                  raise GeminiResponseParsingError("API returned empty text response.")
 
             # The library's chat object automatically appends the model's response to history.
@@ -156,7 +157,7 @@ class GeminiClient: # Renamed the class
 
         except (ClientError, ServerError, RetryError, DeadlineExceeded, ResourceExhausted) as e:
             # Catch specific exceptions raised by google-generativeai/google-api-core
-            print(f"Google API Error caught: {type(e).__name__}: {e}")
+            self._logger.error(f"Google API Error caught: {type(e).__name__}: {e}")
 
             # Map Google's exceptions to your custom exceptions
             if isinstance(e, ResourceExhausted):
@@ -178,7 +179,7 @@ class GeminiClient: # Renamed the class
 
         except Exception as e:
             # Catch any other unexpected Python errors
-            print(f"An unexpected error occurred during the API call: {type(e).__name__}: {e}")
+            self._logger.error(f"An unexpected error occurred during the API call: {type(e).__name__}: {e}")
             raise GeminiAPIError(f"An unexpected error occurred: {e}") from e
 
 
@@ -203,7 +204,7 @@ class GeminiClient: # Renamed the class
         # Get the current history from the chat object
         current_history = self._chat.history
         if len(current_history) > self._max_history_turns:
-            print(f"History length {len(current_history)} exceeds max {self._max_history_turns}. Trimming.")
+            self._logger.warning(f"History length {len(current_history)} exceeds max {self._max_history_turns}. Trimming.")
             # Trim the history list. Keep the last N turns.
             trimmed_history = current_history[-self._max_history_turns:]
             # Replace the chat object's history with the trimmed history
@@ -216,7 +217,7 @@ class GeminiClient: # Renamed the class
 
             # Example of creating a new chat object with trimmed history:
             self._chat = self._model.start_chat(history=trimmed_history)
-            print(f"History trimmed. New length: {len(self._chat.history)}")
+            self._logger.debug(f"History trimmed. New length: {len(self._chat.history)}")
         # Note: If you trim, the *current* user message is appended *after* trimming the old history.
 
 
@@ -236,18 +237,19 @@ class GeminiClient: # Renamed the class
         # Clearing history requires creating a new chat object
         if self._model:
              self._chat = self._model.start_chat(history=[])
-             print("Conversation history cleared.")
+             self._logger.debug("Conversation history cleared.")
         else:
-             print("Model not initialized, cannot clear history.")
+             self._logger.warning("Model not initialized, cannot clear history.")
+
 
     def start(self) -> None:
         try:
 
             # Simulate a conversation
-            print("\nStarting conversation (type 'exit' to exit)...")
+            self._logger.info("\nStarting conversation (type 'exit' to exit)...")
             history=" ".join(initial_history.format(
-                name=self.config.get('name'),
-                purpose=self.config.get('purpose')
+                name=self.name,
+                purpose=self.purpose
             ) for initial_history in GeminiConstants.HISTORY)
             self.send_message(history)
 
@@ -258,10 +260,10 @@ class GeminiClient: # Renamed the class
                 if user_input.lower() == 'clear history':
                     self.clear_history()
                     self.send_message(history)
-                    print("History cleared.")
+                    self._logger.debug("History cleared.")
                     continue
                 if user_input.lower() == 'show history':
-                    print("--- History ---")
+                    self._logger.debug("--- History ---")
                     history = self.get_history()
                     if history:
                         for i, turn in enumerate(history):
@@ -272,25 +274,25 @@ class GeminiClient: # Renamed the class
                                     if 'text' in part:
                                         text_snippet += part['text']
                                         break # Assume first text part is sufficient
-                            print(f"{i}: {turn.get('role', 'unknown')}: {text_snippet[:80]}...") # Print first 80 chars
+                            self._logger.info(f"{i}: {turn.get('role', 'unknown')}: {text_snippet[:80]}...") # Print first 80 chars
                     else:
-                        print("History is empty.")
-                    print("---------------")
+                        self._logger.info("History is empty.")
+                    self._logger.debug("---------------")
                     continue
 
 
                 try:
                     # Send the message and get the response
                     response = self.send_message(user_input)
-                    print(f"Robot: {response}")
+                    print(f"{self.name}: {response}")
 
                 except GeminiBlockedError as e:
-                    print(f"Robot: I cannot respond to that query. ({e})")
+                    self._logger.error(f"{self.name}: I cannot respond to that query. ({e})")
                 except GeminiAPIError as e:
-                    print(f"Robot encountered an API error: {e}")
+                    self._logger.error(f"{self.name} encountered an API error: {e}")
                     # In a real robot, you might speak an error message
                 except Exception as e:
-                    print(f"An unexpected error occurred during conversation: {e}")
+                    self._logger.critical(f"An unexpected error occurred during conversation: {e}")
                     import traceback
                     traceback.print_exc() # Print traceback
 
@@ -298,15 +300,15 @@ class GeminiClient: # Renamed the class
                 # time.sleep(1.0)
 
         except ValueError as e:
-            print(f"Client Initialization Error: {e}")
+            self._logger.error(f"Client Initialization Error: {e}")
         except ImportError as e:
-            print(f"Import Error: {e}. Make sure you have installed 'google-generativeai' and your local modules are correctly structured.")
+            self._logger.error(f"Import Error: {e}. Make sure you have installed 'google-generativeai' and your local modules are correctly structured.")
         except Exception as e:
-            print(f"An unexpected error occurred during setup or main execution: {e}")
+            self._logger.critical(f"An unexpected error occurred during setup or main execution: {e}")
             import traceback
             traceback.print_exc()
 
-        print("Conversation ended.")
+        self._logger.info("Conversation ended.")
 
     # You might add methods to save/load history to/from a file if needed for persistence
     # def save_history(self, filepath): ...

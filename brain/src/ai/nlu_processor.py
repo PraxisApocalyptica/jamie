@@ -6,7 +6,10 @@
 # "Go to the kitchen" -> Intent: GoTo, Entities: {location: "kitchen"}
 # "What is that?" -> Intent: Identify, Entities: {target: "that"} # "that" might refer to a visually perceived object
 
+import logging
+
 from typing import Tuple, Dict, Any
+
 
 class NLUProcessor:
     """Processes raw text to extract intent and entities."""
@@ -14,7 +17,8 @@ class NLUProcessor:
     def __init__(self, config=None):
         # Initialize NLU model or rules here
         # This could use a library like spaCy, NLTK, or a custom model.
-        print("TODO: Initialize NLU Processor.")
+        self._logger = logging.getLogger(self.__class__.__name__)
+        self._logger.warning("TODO: Initialize NLU Processor.")
         self.config = config
 
     def process(self, text: str) -> Tuple[str, Dict[str, Any]]:
@@ -29,7 +33,7 @@ class NLUProcessor:
                 - intent (str): The recognized intent (e.g., "PickUp", "GoTo", "Unknown").
                 - entities (Dict[str, Any]): A dictionary of extracted information (e.g., {"object": "apple", "location": "kitchen"}).
         """
-        print(f"TODO: Process text '{text}' for NLU.")
+        self._logger.warning(f"TODO: Process text '{text}' for NLU.")
         # <<<<< IMPLEMENT NLU LOGIC >>>>>
         # - Tokenization, Part-of-Speech tagging, Named Entity Recognition.
         # - Intent classification based on keywords, sentence structure, or ML model.
@@ -65,7 +69,7 @@ class NLUProcessor:
 
         # --- End Example Simple Keyword-based NLU ---
 
-        print(f"NLU Result: Intent='{intent}', Entities={entities}")
+        self._logger.info(f"NLU Result: Intent='{intent}', Entities={entities}")
         return intent, entities
 
 # --- Example Usage (in DialogueManager or main.py) ---

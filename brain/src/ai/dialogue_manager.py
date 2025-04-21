@@ -10,6 +10,7 @@
 # - (Optional) Personality module: To influence response style and proactive behavior.
 import time
 import threading
+import logging
 
 from typing import Dict, Any, Optional
 # from .nlu_processor import NLUProcessor # Import if not passed in __init__
@@ -30,8 +31,9 @@ class DialogueManager:
         world_model: Any, # WorldModel or similar
         config=None
     ):
-        print("TODO: Initialize Dialogue Manager.")
+        # TODO: Initialize Dialogue Manager."
         # self.nlu_processor = nlu_processor # If NLU processing happens here
+        self._logger = logging.getLogger(self.__class__.__name__)
         self.task_manager = task_manager
         self.gemini_client = gemini_client
         self.vision_communicator = vision_communicator
@@ -54,7 +56,7 @@ class DialogueManager:
         Handles a user command or query parsed by the NLU.
         Decides whether to initiate a robot task or generate a spoken response.
         """
-        print(f"Dialogue Manager handling: Intent='{intent}', Entities={entities}")
+        self._logger.info(f"Dialogue Manager handling: Intent='{intent}', Entities={entities}")
 
         # --- Decide Action based on Intent ---
         if self.task_manager.is_robot_busy():
@@ -113,7 +115,7 @@ class DialogueManager:
                 except self.gemini_client.GeminiBlockedError:
                     self._respond_speak("I cannot respond to that query.")
                 except self.gemini_client.GeminiAPIError as e:
-                    print(f"Gemini API Error: {e}")
+                    self._logger.error(f"Gemini API Error: {e}")
                     self._respond_error("I had trouble talking to my AI brain.")
 
             else:
@@ -131,29 +133,29 @@ class DialogueManager:
             message = {"type": "speak", "text": text, "utterance_id": utterance_id}
             try:
                  self.vision_communicator.send_data_to_client(message)
-                 print(f"Sent text for TTS to Vision: '{text}'")
+                 self._logger.debug(f"Sent text for TTS to Vision: '{text}'")
             except Exception as e:
-                 print(f"Error sending speak command to Vision: {e}")
+                 self._logger.error(f"Error sending speak command to Vision: {e}")
                  # TODO: Handle communication error (e.g., speak error message locally if possible)
         else:
-            print(f"Vision app not connected. Cannot speak: '{text}'")
+            self._logger.warning(f"Vision app not connected. Cannot speak: '{text}'")
             # TODO: Log or handle cases where Vision is not available for speaking
 
     def _respond_thinking(self, text: str = "Thinking...") -> None:
          """Sends text to Vision to indicate processing is happening."""
          # This could be a specific type of message that triggers a different UI/audio cue on the phone
          # Or just use _respond_speak
-         print(f"Indicating thinking: {text}")
+         self._logger.debug(f"Indicating thinking: {text}")
          self._respond_speak(text) # Example: just speak the text
 
     def _respond_error(self, text: str = "I encountered an error.") -> None:
         """Sends text to Vision to indicate an error."""
-        print(f"Indicating error: {text}")
+        self._logger.error(f"Indicating error: {text}")
         self._respond_speak(text) # Example: just speak the text
 
     def _respond_busy(self, original_command_text: Optional[str]) -> None:
         """Responds that the robot is currently busy."""
-        print("Responding busy.")
+        self._logger.warning("Responding busy.")
         self._respond_speak("I'm busy right now. Please wait until I'm finished.")
         # Optional: Log the command that was ignored because robot was busy
 
@@ -161,13 +163,13 @@ class DialogueManager:
     def on_speaking_finished(self, utterance_id: str) -> None:
         """Callback when Vision confirms a speaking task is done."""
         # The TaskManager might need this feedback if a plan step involves speaking
-        print(f"Dialogue Manager received speech finished confirmation for ID: {utterance_id}")
+        self._logger.debug(f"Dialogue Manager received speech finished confirmation for ID: {utterance_id}")
         # TODO: TaskManager might be waiting for this
 
     def on_task_status_update(self, task_id: str, status: str, message: Optional[str] = None):
         """Receives status updates from the TaskManager and potentially speaks them."""
         # Example statuses: "navigating", "arrived", "grasping", "grasp_failed", "task_complete"
-        print(f"Dialogue Manager received task update: {task_id} - {status} - {message}")
+        self._logger.debug(f"Dialogue Manager received task update: {task_id} - {status} - {message}")
         if status == "navigating":
              # self._respond_speak("Navigating now.") # Maybe too chatty
              pass
@@ -189,13 +191,13 @@ class DialogueManager:
     #     """Resolves a named location (e.g., 'kitchen') to coordinates in the world model."""
     #     # Needs access to known locations in the WorldModel or map data
     #     # Could also resolve object names if the user means "go to the apple"
-    #     print(f"TODO: Resolve location name: {location_name}")
+    #     self._logger.debug(f"TODO: Resolve location name: {location_name}")
     #     return None # Placeholder
 
     # def _identify_object_in_view(self) -> Optional[ObjectInfo]:
     #     """Identifies the most likely object the robot is looking at based on vision data."""
     #     # Needs access to recent vision detections and the robot's gaze direction (pan/tilt)
-    #     print("TODO: Identify object in view.")
+    #     self._logger.info("TODO: Identify object in view.")
     #     return None # Placeholder
 
 
