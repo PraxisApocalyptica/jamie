@@ -33,7 +33,6 @@ class ApocalypticaRobot:
         self.config = load_config(config_path)
         robot = self.config.get('robot', {})
         self.name = robot.get('name', 'Jamie')
-        self._logger.info(f"Initializing {self.name}...")
 
         # --- Communication ---
         self.motion_comm = ArduinoSerialCommunicator(
@@ -84,8 +83,6 @@ class ApocalypticaRobot:
         # self.object_processor = ObjectProcessor(world_model=self.world_model, ...)
         # self.slam_localization = SlamLocalization(world_model=self.world_model, ...)
 
-
-        self._logger.info(f"{self.name} initialized.")
 
     def _handle_vision_data(self, data: Dict[str, Any]) -> None:
         """Callback method to process data received from the Vision (Android/iOS) app."""

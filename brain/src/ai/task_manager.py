@@ -36,7 +36,7 @@ class TaskManager:
         config=None
     ):
         self._logger = logging.getLogger(self.__class__.__name__)
-        self._logger.info("TODO: Initialize Task Manager.")
+        self._logger.debug("TODO: Initialize Task Manager.")
         self.world_model = world_model
         self.motion_communicator = motion_communicator
         # self.dialogue_manager = dialogue_manager
