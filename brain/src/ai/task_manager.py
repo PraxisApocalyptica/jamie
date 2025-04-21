@@ -9,8 +9,11 @@
 # - Robotics Algorithms: To calculate paths, joint angles, grasp poses.
 # - Sensor Handlers: To receive and interpret feedback (e.g., "arrived", "grasp confirmed", "bump").
 
-from typing import Dict, Any, List, Optional
+import logging
 import time # For timing actions or adding delays
+
+from typing import Dict, Any, List, Optional
+
 
 # from .dialogue_manager import DialogueManager # Import if needed for status updates
 # from ..communication.arduino_serial import ArduinoSerialCommunicator # Import for motion control
@@ -32,7 +35,8 @@ class TaskManager:
         # grasp_planner: Optional[Any] = None, # GraspPlanning instance
         config=None
     ):
-        print("TODO: Initialize Task Manager.")
+        self._logger = logging.getLogger(self.__class__.__name__)
+        self._logger.info("TODO: Initialize Task Manager.")
         self.world_model = world_model
         self.motion_communicator = motion_communicator
         # self.dialogue_manager = dialogue_manager
@@ -66,11 +70,11 @@ class TaskManager:
         Receives a new high-level goal (from NLU/Dialogue Manager) and starts planning.
         """
         if self.is_robot_busy():
-            print(f"Robot is busy with task {self.world_model.robot_state.current_task}. Cannot set new goal: {goal['intent']}")
+            self._logger.warning(f"Robot is busy with task {self.world_model.robot_state.current_task}. Cannot set new goal: {goal['intent']}")
             # TODO: Report busy status back via Dialogue Manager
             return
 
-        print(f"Task Manager received new goal: {goal['intent']}")
+        self._logger.info(f"Task Manager received new goal: {goal['intent']}")
         self._current_goal = goal
         self._current_plan = [] # Clear previous plan
         self._current_step_index = 0
@@ -117,14 +121,14 @@ class TaskManager:
         if self._current_plan:
             self.world_model.robot_state.current_task = "EXECUTING_PLAN"
             self._current_step_index = 0 # Start from the first step
-            print(f"Plan created with {len(self._current_plan)} steps. Starting execution.")
+            self._logger.debug(f"Plan created with {len(self._current_plan)} steps. Starting execution.")
             # self.dialogue_manager.on_task_status_update(task_id=goal.get('id', 'N/A'), status="executing", message=f"Starting plan with {len(self._current_plan)} steps.")
             # Execute the first step immediately or wait for process_current_task loop
             # self.process_current_task() # Execute the first step
         else:
             self._current_goal = None # Clear goal if planning failed
             self.world_model.robot_state.current_task = "IDLE"
-            print("Planning failed or resulted in an empty plan.")
+            self._logger.warning("Planning failed or resulted in an empty plan.")
             # TODO: Report planning failure back via Dialogue Manager
 
     # This method should be called periodically by the main loop or triggered by events
@@ -136,13 +140,13 @@ class TaskManager:
         if self._step_feedback_pending:
              # Check for timeout if feedback is pending
              # if time.time() - self._last_step_start_time > self.config['task_manager'].get('step_timeout_sec', 10.0): # Default 10s
-             #     print(f"Step {self._current_step_index} timed out while waiting for feedback.")
+             #     self._logger.debug(f"Step {self._current_step_index} timed out while waiting for feedback.")
              #     self._handle_step_failure("timeout") # Handle timeout
              return # Still waiting for feedback
 
         # Check if plan is finished
         if self._current_step_index >= len(self._current_plan):
-            print("Plan execution finished.")
+            self._logger.info("Plan execution finished.")
             self._handle_plan_completion()
             return
 
@@ -151,7 +155,7 @@ class TaskManager:
         action = step.get("action")
         params = step.get("params", {})
 
-        print(f"Executing step {self._current_step_index}: Action='{action}'")
+        self._logger.info(f"Executing step {self._current_step_index}: Action='{action}'")
         self._last_step_start_time = time.time() # Start timer for this step
         self._step_feedback_pending = False # Assume no feedback needed initially
 
@@ -166,7 +170,7 @@ class TaskManager:
                 # Tell PathPlanner to start navigating
                 # The PathPlanner needs to calculate motor commands and send them to MotionCommunicator
                 # It also needs to signal back when navigation is complete ("NAV_COMPLETE" feedback)
-                print(f"TODO: Start navigation towards {location}")
+                self._logger.debug(f"TODO: Start navigation towards {location}")
                 self.motion_communicator.send_command("M:150:150\n") # Example: just move forward indefinitely
                 self._step_feedback_pending = True # Expect "NAV_COMPLETE" feedback
 
@@ -178,7 +182,7 @@ class TaskManager:
                  # Send joint angles to Motion controller
                  for i, angle in enumerate(angles):
                      self.motion_communicator.send_command(f"J:{i}:{int(angle)}\n") # Send as integer
-                 print(f"TODO: Send arm angles: {angles}")
+                 self._logger.debug(f"TODO: Send arm angles: {angles}")
                  self._step_feedback_pending = True # Expect "ARM_REACHED_POSE" feedback (or similar)
 
             else: self._handle_step_failure("invalid_angles")
@@ -188,17 +192,17 @@ class TaskManager:
             gripper_joint_index = 5 # <<<<< SET YOUR GRIPPER JOINT INDEX >>>>>
             if state == "open":
                 # self.motion_communicator.send_command(f"J:{gripper_joint_index}:{self.config['robot_parameters']['gripper_open_angle']}\n") # Use config for angles
-                print("TODO: Send gripper open command")
+                self._logger.debug("TODO: Send gripper open command")
                 self._step_feedback_pending = True # Expect confirmation or time out
             elif state == "close":
                  # self.motion_communicator.send_command(f"J:{gripper_joint_index}:{self.config['robot_parameters']['gripper_close_angle']}\n") # Use config for angles
-                 print("TODO: Send gripper close command")
+                 self._logger.debug("TODO: Send gripper close command")
                  self._step_feedback_pending = True # Expect confirmation or force sensor feedback (processed in process_feedback)
             else: self._handle_step_failure("invalid_gripper_state")
 
         elif action == "wait":
             duration = params.get("duration", 1.0)
-            print(f"Waiting for {duration} seconds...")
+            self._logger.debug(f"Waiting for {duration} seconds...")
             time.sleep(duration) # This action blocks, which is okay for simple waits
             self._step_feedback_pending = False # Completes after sleep
             # Move to the next step immediately after waiting
@@ -212,7 +216,7 @@ class TaskManager:
             if text:
                  # Send text to Dialogue Manager, which sends to Vision for TTS
                  # self.dialogue_manager.respond_speak(text)
-                 print(f"TODO: Speak: '{text}'")
+                 self._logger.debug(f"TODO: Speak: '{text}'")
                  # Need feedback from Vision app when speaking is done ('speech_response_done')
                  self._step_feedback_pending = True # Wait for speak completion
 
@@ -233,7 +237,7 @@ class TaskManager:
         Processes feedback received from the Motion controller or other modules.
         This method is called by communication handlers (e.g., _handle_motion_data).
         """
-        print(f"Task Manager processing feedback: {feedback_data}")
+        self._logger.info(f"Task Manager processing feedback: {feedback_data}")
 
         # Check if we are waiting for feedback for the current step
         if self._step_feedback_pending:
@@ -243,7 +247,7 @@ class TaskManager:
 
             # Example: Feedback from ArduinoSerialCommunicator or PathPlanning
             if action == "navigate_to" and feedback_data == "NAV_COMPLETE": # Example feedback string
-                 print("Navigation step confirmed complete.")
+                 self._logger.debug("Navigation step confirmed complete.")
                  self._step_feedback_pending = False
                  self._current_step_index += 1 # Move to the next plan step
                  # Optionally trigger processing the next step immediately
@@ -251,7 +255,7 @@ class TaskManager:
 
             # Example: Feedback from ArduinoSerialCommunicator or ArmKinematics/Control
             elif action == "move_arm_to_angles" and feedback_data == "ARM_REACHED_POSE": # Example feedback string
-                 print("Arm movement step confirmed complete.")
+                 self._logger.debug("Arm movement step confirmed complete.")
                  self._step_feedback_pending = False
                  self._current_step_index += 1
                  # self.process_current_task()
@@ -264,41 +268,41 @@ class TaskManager:
                  if feedback_data.startswith("SENSOR:") and "force_sensor_pin" in feedback_data: # Example check
                      # force_value = self.world_model.get_sensor_value(FORCE_SENSOR_PIN) # Need macro for pin
                      # if force_value is not None and force_value > self.config['robot_parameters'].get('grasp_force_threshold', 1.0): # Check threshold
-                     print("Gripper close step confirmed, grasp detected.")
+                     self._logger.debug("Gripper close step confirmed, grasp detected.")
                      self.world_model.robot_state.gripper_state = "holding" # Update state
                      self._step_feedback_pending = False
                      self._current_step_index += 1
                      # self.process_current_task()
                  # Else: Gripper closed but no grasp detected? Handle failure?
                  elif feedback_data == "GRIPPER_CLOSED_NO_GRASP": # Example feedback string
-                     print("Gripper closed but no grasp detected.")
+                     self._logger.debug("Gripper closed but no grasp detected.")
                      self._handle_step_failure("no_grasp")
                  elif feedback_data == "GRIPPER_CLOSED_GRASPED": # Example feedback string confirming grasp
-                     print("Gripper close step confirmed, grasp detected.")
+                     self._logger.debug("Gripper close step confirmed, grasp detected.")
                      self.world_model.robot_state.gripper_state = "holding" # Update state
                      self._step_feedback_pending = False
                      self._current_step_index += 1
                      # self.process_current_task()
                  elif feedback_data == "GRIPPER_CLOSED_ERROR": # Example error feedback
-                     print("Gripper closed with error.")
+                     self._logger.debug("Gripper closed with error.")
                      self._handle_step_failure("gripper_error")
 
 
             elif action == "set_gripper" and current_step.get("params", {}).get("state") == "open":
                  if feedback_data == "GRIPPER_OPEN_COMPLETE": # Example feedback
-                     print("Gripper open step confirmed.")
+                     self._logger.debug("Gripper open step confirmed.")
                      self.world_model.robot_state.gripper_state = "open" # Update state
                      self._step_feedback_pending = False
                      self._current_step_index += 1
                      # self.process_current_task()
                  elif feedback_data == "GRIPPER_OPEN_ERROR":
-                     print("Gripper open with error.")
+                     self._logger.debug("Gripper open with error.")
                      self._handle_step_failure("gripper_error")
 
             elif action == "speak" and feedback_data.startswith("speech_response_done"): # Example feedback from Vision
                  # The Vision app sends this via WifiCommunicator when TTS is done speaking
                  # Extract utterance ID if needed: utterance_id = feedback_data.split(":")
-                 print("Speak step confirmed complete by Vision.")
+                 self._logger.debug("Speak step confirmed complete by Vision.")
                  self._step_feedback_pending = False
                  self._current_step_index += 1
                  # self.process_current_task()
@@ -309,7 +313,7 @@ class TaskManager:
         """Handles failure of the current plan step."""
         failed_step = self._current_plan[self._current_step_index]
         action = failed_step.get("action")
-        print(f"Step {self._current_step_index} ({action}) failed due to: {reason}")
+        self._logger.error(f"Step {self._current_step_index} ({action}) failed due to: {reason}")
 
         # <<<<< IMPLEMENT FAILURE HANDLING / REPLANNING >>>>>
         # 1. Stop robot motion as a safety measure:
@@ -317,7 +321,7 @@ class TaskManager:
         # 2. Report failure via Dialogue Manager:
         # self.dialogue_manager.on_task_status_update(task_id=self._current_goal.get('id', 'N/A'), status="step_failed", message=f"{action} failed: {reason}")
         # self.dialogue_manager.respond_speak(f"I failed to {action.replace('_', ' ')}. Reason: {reason}.") # Simple spoken error
-        print(f"TODO: Handle failure of action '{action}' due to '{reason}'.")
+        self._logger.debug(f"TODO: Handle failure of action '{action}' due to '{reason}'.")
 
         # 3. Decide next steps:
         #    - Simple: Abort the current goal and return to IDLE.
@@ -331,7 +335,7 @@ class TaskManager:
 
     def _handle_plan_completion(self, success: bool = True) -> None:
         """Handles the completion (success or failure) of the current plan."""
-        print(f"Plan execution completed. Success: {success}")
+        self._logger.debug(f"Plan execution completed. Success: {success}")
         # Reset state
         self._current_goal = None
         self._current_plan = []
@@ -349,7 +353,7 @@ class TaskManager:
         # if success: self.dialogue_manager.respond_speak(message) # Speak success message
         # else: self.dialogue_manager.respond_error(message) # Speak failure message
 
-        print("Task Manager is now IDLE.")
+        self._logger.debug("Task Manager is now IDLE.")
 
 
     # Optional: Method to handle requests from Dialogue Manager to set a lower priority goal

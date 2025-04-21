@@ -8,13 +8,17 @@
 
 # This is highly optional and advanced.
 
+import logging
+
 from typing import Dict, Any
+
 
 class Personality:
     """Defines the robot's personality and proactive behavior logic."""
 
     def __init__(self, config=None):
-        print("TODO: Initialize Personality module.")
+        self._logger = logging.getLogger(self.__class__.__name__)
+        self._logger.info("TODO: Initialize Personality module.")
         self.config = config
         # Define personality traits (e.g., self.traits = {"friendliness": 0.8, "curiosity": 0.9})
         # Initialize internal state (e.g., self.internal_state = {"energy": 1.0, "mood": "neutral"})
@@ -23,14 +27,14 @@ class Personality:
         """Modifies a text response based on personality traits."""
         # <<<<< IMPLEMENT PERSONALITY INFLUENCE >>>>>
         # Example: Add exclamation marks if cheerful, add hesitant phrases if cautious.
-        print(f"TODO: Infuse personality into text: '{text}'")
+        self._logger.info(f"TODO: Infuse personality into text: '{text}'")
         # For example: if self.traits.get("cheerfulness", 0) > 0.7: return text + "!"
         return text # Return the original text for now
 
     def check_proactive_behaviors(self, world_model: Any) -> None:
         """Checks if any proactive behaviors should be triggered based on state."""
         # This method would be called periodically in the main loop or TaskManager.
-        print("TODO: Check for proactive behaviors.")
+        self._logger.info("TODO: Check for proactive behaviors.")
         # <<<<< IMPLEMENT PROACTIVE BEHAVIOR TRIGGERS >>>>>
         # Example:
         # if world_model.sees_pet() and world_model.robot_state.current_task == "IDLE":

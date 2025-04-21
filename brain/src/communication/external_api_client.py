@@ -3,12 +3,15 @@
 
 import requests
 import json
+import logging
 # Add other libraries as needed for specific APIs
+
 
 class ExternalApiClient:
     """Handles communication with external web APIs."""
 
     def __init__(self, api_key=None):
+        self._logger = logging.getLogger(self.__class__.__name__)
         # Initialize with API keys or configuration for external services
         self.api_key = api_key # Example API key
         # Add base URLs, authentication methods, etc.
@@ -18,7 +21,7 @@ class ExternalApiClient:
         # <<<<< IMPLEMENT WEATHER API CALL >>>>>
         # Use 'requests' to call a weather API (e.g., OpenWeatherMap, WeatherAPI.com)
         # Requires signing up for the service and getting an API key
-        print(f"TODO: Call weather API for {location}")
+        self._logger.debug(f"TODO: Call weather API for {location}")
         try:
             # Example API call structure (replace with actual API endpoint and params)
             # url = f"https://api.weatherapi.com/v1/current.json?key={self.api_key}&q={location}"
@@ -31,10 +34,10 @@ class ExternalApiClient:
             return f"Checking weather for {location}... (API call not implemented)" # Placeholder
 
         except requests.exceptions.RequestException as e:
-            print(f"Error calling weather API: {e}")
+            self._logger.error(f"Error calling weather API: {e}")
             return f"I'm sorry, I couldn't get the weather for {location} right now."
         except Exception as e:
-            print(f"An unexpected error occurred getting weather: {e}")
+            self._logger.critical(f"An unexpected error occurred getting weather: {e}")
             return "I encountered an error trying to get the weather."
 
     # Add other methods for different external services (e.g., get_time, get_news_headlines)
