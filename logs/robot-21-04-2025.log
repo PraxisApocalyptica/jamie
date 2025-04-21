@@ -1,0 +1,23 @@
+2025-04-21 08:52:04,897 - root - INFO - Logging to file: ../logs/robot-21-04-2025.log
+2025-04-21 08:52:04,899 - src.config - INFO - Configuration loaded from /home/sooraj/sandbox/doomsday/jamie/brain/config/robot.yaml
+2025-04-21 08:52:04,899 - ApocalypticaRobot - INFO - Initializing Jamie...
+2025-04-21 08:52:04,900 - TaskManager - INFO - TODO: Initialize Task Manager.
+2025-04-21 08:52:04,900 - GeminiClient - INFO - 
+Starting conversation (type 'exit' to exit)...
+2025-04-21 08:52:04,900 - ApocalypticaRobot - INFO - Jamie initialized.
+2025-04-21 08:52:04,901 - ApocalypticaRobot - INFO - Starting Jamie...
+2025-04-21 08:52:04,901 - ArduinoSerialCommunicator - ERROR - Could not connect serial port /dev/ttyACM0: [Errno 2] could not open port /dev/ttyACM0: [Errno 2] No such file or directory: '/dev/ttyACM0'
+2025-04-21 08:52:04,902 - PhoneWifiServer - INFO - Wi-Fi server listening on 0.0.0.0:5000
+2025-04-21 08:52:04,904 - PhoneWifiServer - DEBUG - Wi-Fi listen thread started.
+2025-04-21 08:52:06,905 - ApocalypticaRobot - WARNING - Failed to connect to Motion controller. Movement is unavailable.
+2025-04-21 08:52:06,905 - ApocalypticaRobot - INFO - All core communication components connected/started.
+2025-04-21 08:52:16,125 - GeminiClient - INFO - Conversation ended.
+2025-04-21 08:52:18,453 - ApocalypticaRobot - WARNING - 
+Ctrl+C detected. Shutting down.
+2025-04-21 08:52:18,454 - ApocalypticaRobot - DEBUG - Cleaning up...
+2025-04-21 08:52:18,454 - ArduinoSerialCommunicator - WARNING - Not connected to serial. Cannot send command: STOP
+2025-04-21 08:52:19,454 - ArduinoSerialCommunicator - DEBUG - Attempting to disconnect serial...
+2025-04-21 08:52:19,454 - PhoneWifiServer - DEBUG - Attempting to stop Wi-Fi server...
+2025-04-21 08:52:19,455 - PhoneWifiServer - DEBUG - Wi-Fi server socket closed.
+2025-04-21 08:52:19,555 - PhoneWifiServer - DEBUG - Wi-Fi listen thread stopped.
+2025-04-21 08:52:19,556 - ApocalypticaRobot - INFO - Shutdown complete.
