@@ -65,7 +65,6 @@ class LogHandler:
             file_handler.setLevel(logging.DEBUG) # File shows DEBUG and above
             file_handler.setFormatter(file_formatter)
             self._logger_instance.addHandler(file_handler)
-            print("here")
 
             self._logger_instance.debug(f"Logging to file: {log_file_path}")
         except Exception as e:

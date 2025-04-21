@@ -30,6 +30,7 @@ class GeminiClient: # Renamed the class
         self,
         api_key: str,
         config,
+        speech_assistant,
         model_name: str = GeminiConstants.MODEL, # Use model name (e.g., "gemini-2.0-flash")
         max_output_tokens: int = 150,
         temperature: float = 0.7,
@@ -65,6 +66,7 @@ class GeminiClient: # Renamed the class
         self.name=self.config.get('name')
         self.purpose=self.config.get('purpose')
 
+        self.speech_assistant=speech_assistant
 
         self._api_key: str = api_key
         self._model_name: str = model_name
@@ -285,6 +287,7 @@ class GeminiClient: # Renamed the class
                     # Send the message and get the response
                     response = self.send_message(user_input)
                     print(f"{self.name}: {response}")
+                    self.speech_assistant.synthesize_and_speak(response)
 
                 except GeminiBlockedError as e:
                     self._logger.error(f"{self.name}: I cannot respond to that query. ({e})")
