@@ -1,4 +1,5 @@
 import google.generativeai as genai
+import random
 import logging
 import os
 import textwrap
@@ -11,7 +12,8 @@ from google.api_core.exceptions import (
 )
 from typing import List, Dict, Any, Optional, Union
 
-from src.ai.clients.constants import GEMINI as GeminiConstants, MEMORY, COMMANDS
+from src.ai.clients.constants import GEMINI as GeminiConstants, MEMORY, \
+                                                COMMANDS, AI_RESPONSES
 from src.ai.clients.gemini.exceptions import (
     GeminiAPIError, GeminiResponseParsingError, GeminiBlockedError
 )
@@ -85,13 +87,13 @@ class GeminiClient:
         if not model_name:
             raise ValueError("Model name cannot be empty.")
         if not isinstance(max_output_tokens, int) or max_output_tokens <= 0:
-             raise ValueError("max_output_tokens must be a positive integer.")
+            raise ValueError("max_output_tokens must be a positive integer.")
         if not isinstance(temperature, (int, float)) or not (0.0 <= temperature <= 1.0):
-             raise ValueError("temperature must be between 0.0 and 1.0.")
+            raise ValueError("temperature must be between 0.0 and 1.0.")
         if history_file is not None and not isinstance(history_file, str):
-             raise ValueError("history_file must be a string basename or None.")
+            raise ValueError("history_file must be a string basename or None.")
         if not isinstance(history_dir, str) or not history_dir:
-             raise ValueError("history_dir must be a non-empty string.")
+            raise ValueError("history_dir must be a non-empty string.")
 
 
         # --- Validate and process max_history_turns INPUT ---
@@ -99,28 +101,28 @@ class GeminiClient:
         processed_max_history_turns: Optional[int] = None # This will store the final internal value
 
         if max_history_turns is None:
-             processed_max_history_turns = None # None input -> None internal (means save all)
-             self._logger.debug("max_history_turns input is None, will save all history.")
+            processed_max_history_turns = None # None input -> None internal (means save all)
+            self._logger.debug("max_history_turns input is None, will save all history.")
         elif isinstance(max_history_turns, int):
-             if max_history_turns < 0:
-                  raise ValueError(f"max_history_turns integer value must be non-negative, but got {max_history_turns}.")
-             processed_max_history_turns = max_history_turns # Valid integer input -> use as int
-             self._logger.debug(f"max_history_turns input is valid integer: {processed_max_history_turns}.")
+            if max_history_turns < 0:
+                raise ValueError(f"max_history_turns integer value must be non-negative, but got {max_history_turns}.")
+            processed_max_history_turns = max_history_turns # Valid integer input -> use as int
+            self._logger.debug(f"max_history_turns input is valid integer: {processed_max_history_turns}.")
         elif isinstance(max_history_turns, str):
-             if max_history_turns.upper() == 'ALL':
-                  processed_max_history_turns = None # "ALL" string input -> None internal (means save all)
-                  self._logger.debug("Mapping max_history_turns string 'ALL' to internal value None (save all).")
-             else:
-                  # It's a string, but not "ALL". Try converting to int.
-                  try:
-                       int_value = int(max_history_turns)
-                       if int_value < 0:
-                            raise ValueError(f"max_history_turns string value must be a non-negative integer string or 'ALL', but got '{max_history_turns}'.")
-                       processed_max_history_turns = int_value # Valid number string -> use as int
-                       self._logger.debug(f"max_history_turns input was number string '{max_history_turns}', successfully converted to integer {processed_max_history_turns}.")
-                  except ValueError:
-                       # It's a non-numeric string other than "ALL"
-                       raise ValueError(f"Invalid string value for max_history_turns: '{max_history_turns}'. Must be None, a non-negative integer string, or 'ALL'.") from None
+            if max_history_turns.upper() == 'ALL':
+                processed_max_history_turns = None # "ALL" string input -> None internal (means save all)
+                self._logger.debug("Mapping max_history_turns string 'ALL' to internal value None (save all).")
+            else:
+                # It's a string, but not "ALL". Try converting to int.
+                try:
+                    int_value = int(max_history_turns)
+                    if int_value < 0:
+                        raise ValueError(f"max_history_turns string value must be a non-negative integer string or 'ALL', but got '{max_history_turns}'.")
+                    processed_max_history_turns = int_value # Valid number string -> use as int
+                    self._logger.debug(f"max_history_turns input was number string '{max_history_turns}', successfully converted to integer {processed_max_history_turns}.")
+                except ValueError:
+                    # It's a non-numeric string other than "ALL"
+                    raise ValueError(f"Invalid string value for max_history_turns: '{max_history_turns}'. Must be None, a non-negative integer string, or 'ALL'.") from None
         else:
             # It's some other invalid type (float, list, dict, etc.)
             raise ValueError(f"Invalid type for max_history_turns: {type(max_history_turns)}. Must be None, an integer, or the string 'ALL'.")
@@ -146,7 +148,7 @@ class GeminiClient:
         # Construct full history file path
         self._history_file_path: Optional[str] = None
         if history_file is not None:
-             self._history_file_path = os.path.join(history_dir, history_file)
+            self._history_file_path = os.path.join(history_dir, history_file)
 
         # --- Initialize File Protector ---
         # WARNING: Still using API key as password here. INSECURE.
@@ -154,25 +156,25 @@ class GeminiClient:
         self._file_protector: Optional[FileProtector] = None
 
         if self._history_file_path:
-             try:
-                 if not all(hasattr(GeminiConstants, attr) for attr in ['KDF_SALT_SIZE', 'KDF_ITERATIONS', 'ENCRYPTION_ALGORITHM', 'ENCRYPTION_MODE', 'AES_KEY_SIZE', 'IV_NONCE_SIZE']):
-                      raise AttributeError("GeminiConstants is missing required cryptographic attributes.")
-                 self._file_protector = FileProtector(self._password, GeminiConstants)
-                 self._logger.debug("FileProtector initialized successfully.")
-             except (ValueError, AttributeError, ImportError) as e:
-                 self._logger.error(f"Failed to initialize FileProtector. History persistence disabled. Error: {e}", exc_info=True)
-                 self._file_protector = None
-                 self._history_file_path = None
+            try:
+                if not all(hasattr(GeminiConstants, attr) for attr in ['KDF_SALT_SIZE', 'KDF_ITERATIONS', 'ENCRYPTION_ALGORITHM', 'ENCRYPTION_MODE', 'AES_KEY_SIZE', 'IV_NONCE_SIZE']):
+                    raise AttributeError("GeminiConstants is missing required cryptographic attributes.")
+                self._file_protector = FileProtector(self._password, GeminiConstants)
+                self._logger.debug("FileProtector initialized successfully.")
+            except (ValueError, AttributeError, ImportError) as e:
+                self._logger.error(f"Failed to initialize FileProtector. History persistence disabled. Error: {e}", exc_info=True)
+                self._file_protector = None
+                self._history_file_path = None
 
 
         # --- Configure the generativeai library ---
         try:
-             genai.configure(api_key=self._api_key)
-             self._model = genai.GenerativeModel(self._model_name)
-             self._logger.debug(f"GenerativeModel '{self._model_name}' loaded.")
+            genai.configure(api_key=self._api_key)
+            self._model = genai.GenerativeModel(self._model_name)
+            self._logger.debug(f"GenerativeModel '{self._model_name}' loaded.")
         except Exception as e:
-             self._logger.critical(f"Failed to configure genai or load model '{self._model_name}': {e}", exc_info=True)
-             raise RuntimeError(f"Could not initialize Gemini model: {e}") from e
+            self._logger.critical(f"Failed to configure genai or load model '{self._model_name}': {e}", exc_info=True)
+            raise RuntimeError(f"Could not initialize Gemini model: {e}") from e
 
         self._chat = self._model.start_chat(history=[])
         self._logger.debug("Chat session started with empty history.")
@@ -180,15 +182,15 @@ class GeminiClient:
         # --- Load history on startup ---
         self._loaded_history_text: Optional[str] = None
         if self._file_protector and self._history_file_path and os.path.exists(self._history_file_path):
-             self._loaded_history_text = self._load_history()
-             if self._loaded_history_text:
-                 self._logger.info(f"Loaded previous conversation history from {self._history_file_path} ({len(self._loaded_history_text)} chars).")
-             else:
-                 self._logger.warning(f"Could not load history from {self._history_file_path} or file was empty/corrupt.")
+            self._loaded_history_text = self._load_history()
+            if self._loaded_history_text:
+                self._logger.info(f"Loaded previous conversation history from {self._history_file_path} ({len(self._loaded_history_text)} chars).")
+            else:
+                self._logger.warning(f"Could not load history from {self._history_file_path} or file was empty/corrupt.")
         elif self._history_file_path:
-             self._logger.debug(f"History file {self._history_file_path} not found or persistence disabled. Starting fresh.")
+            self._logger.debug(f"History file {self._history_file_path} not found or persistence disabled. Starting fresh.")
         else:
-             self._logger.debug("History persistence is disabled.")
+            self._logger.debug("History persistence is disabled.")
 
     def _format_history_for_saving(self, history_list: List[Dict[str, Any]]) -> str:
         """
@@ -223,9 +225,9 @@ class GeminiClient:
                 for part in parts:
                     # Ensure part is a dictionary and has a 'text' string key
                     if isinstance(part, dict) and 'text' in part and isinstance(part['text'], str):
-                         text_content_parts.append(part['text'])
+                        text_content_parts.append(part['text'])
                     else:
-                         self._logger.warning(f"Skipping malformed part in turn (Role: {role}): {part}")
+                        self._logger.warning(f"Skipping malformed part in turn (Role: {role}): {part}")
 
 
             full_text_content = "".join(text_content_parts).strip()
@@ -289,13 +291,13 @@ class GeminiClient:
                 # In this edge case, save the single entry if it exists and max_history_turns > 0
                 history_to_save_dicts = current_session_history_dicts
             elif len(current_session_history_dicts) > max_entries_to_keep:
-                 # History is longer than the max allowed entries, trim it
-                 history_to_save_dicts = current_session_history_dicts[-max_entries_to_keep:]
-                 self._logger.debug(f"max_history_turns is {self._max_history_turns} (>0). Trimmed history from {len(current_session_history_dicts)} to {len(history_to_save_dicts)} entries (kept last {max_entries_to_keep}).")
+                # History is longer than the max allowed entries, trim it
+                history_to_save_dicts = current_session_history_dicts[-max_entries_to_keep:]
+                self._logger.debug(f"max_history_turns is {self._max_history_turns} (>0). Trimmed history from {len(current_session_history_dicts)} to {len(history_to_save_dicts)} entries (kept last {max_entries_to_keep}).")
             else:
-                 # History is shorter than or equal to the max allowed entries (and >= 2 if applicable), save it all
-                 history_to_save_dicts = current_session_history_dicts
-                 self._logger.debug(f"max_history_turns is {self._max_history_turns} (>0). History length ({len(current_session_history_dicts)}) is less than or equal to max entries to keep ({max_entries_to_keep}). Selecting full current history (no trim needed beyond incomplete turn check logic above).")
+                # History is shorter than or equal to the max allowed entries (and >= 2 if applicable), save it all
+                history_to_save_dicts = current_session_history_dicts
+                self._logger.debug(f"max_history_turns is {self._max_history_turns} (>0). History length ({len(current_session_history_dicts)}) is less than or equal to max entries to keep ({max_entries_to_keep}). Selecting full current history (no trim needed beyond incomplete turn check logic above).")
 
 
         self._logger.debug(f"History list selected for saving has {len(history_to_save_dicts)} entries.")
@@ -308,7 +310,7 @@ class GeminiClient:
         # If the formatted text is empty or only whitespace after formatting
         if not history_text.strip():
             self._logger.debug("Formatted history is empty or only whitespace, ensuring history file is removed.")
-             # Ensure file is removed if history becomes empty, to start fresh next time
+            # Ensure file is removed if history becomes empty, to start fresh next time
             if self._history_file_path and os.path.exists(self._history_file_path):
                 try:
                     os.remove(self._history_file_path)
@@ -355,11 +357,17 @@ class GeminiClient:
 
     def _load_history(self) -> Optional[str]:
         """
-        Loads conversation history... (docstring remains the same)
+        Loads conversation history from the encrypted file.
+
+        Decrypts the content using FileProtector and returns the decrypted string.
+
+        Returns:
+            The loaded and decrypted history string, or None if loading/decryption fails,
+            the file doesn't exist, or the file is empty/corrupt.
         """
         if not self._file_protector or not self._history_file_path:
-             self._logger.debug("History persistence is disabled, cannot load.")
-             return None
+            self._logger.debug("History persistence is disabled, cannot load.")
+            return None
         if not os.path.exists(self._history_file_path):
             self._logger.debug(f"History file not found: {self._history_file_path}. No history to load.")
             return None
@@ -369,20 +377,20 @@ class GeminiClient:
                 encrypted_data = f.read()
 
             if not encrypted_data:
-                 self._logger.debug(f"History file {self._history_file_path} is empty. No history to load.")
-                 return None
+                self._logger.debug(f"History file {self._history_file_path} is empty. No history to load.")
+                return None
 
             decrypted_data_bytes = self._file_protector.decrypt(encrypted_data)
 
             if decrypted_data_bytes is None:
-                 self._logger.warning(f"Decryption failed for history file {self._history_file_path}. Cannot load history.")
-                 return None
+                self._logger.warning(f"Decryption failed for history file {self._history_file_path}. Cannot load history.")
+                return None
 
             history_text_string = decrypted_data_bytes.decode('utf-8')
 
             if not history_text_string.strip():
-                 self._logger.warning(f"Decrypted data from {self._history_file_path} was empty or contained only whitespace after decoding. Cannot load history.")
-                 return None
+                self._logger.warning(f"Decrypted data from {self._history_file_path} was empty or contained only whitespace after decoding. Cannot load history.")
+                return None
 
             return history_text_string
 
@@ -392,16 +400,20 @@ class GeminiClient:
 
     def clear_history(self) -> None:
         """
-        Clears the conversation history... (docstring remains the same)
+        Clears the conversation history in the generativeai chat object and
+        removes the encrypted history file if it exists.
+
+        After clearing, it sends a message to the model including the initial
+        purpose instructions to reset the context.
         """
         self._logger.info("Clearing conversation history...")
         if self._model:
-             self._chat = self._model.start_chat(history=[])
-             self._logger.debug("Conversation history cleared in memory.")
-             self._loaded_history_text = None
+            self._chat = self._model.start_chat(history=[])
+            self._logger.debug("Conversation history cleared in memory.")
+            self._loaded_history_text = None
         else:
-             self._logger.warning("Model not initialized, cannot clear in-memory history.")
-             return
+            self._logger.warning("Model not initialized, cannot clear in-memory history.")
+            return
 
         if self._history_file_path and os.path.exists(self._history_file_path):
             try:
@@ -410,21 +422,21 @@ class GeminiClient:
             except OSError as e:
                 self._logger.error(f"Error removing encrypted history file {self._history_file_path}: {e}", exc_info=True)
         elif self._history_file_path:
-             self._logger.debug(f"History file {self._history_file_path} not found, nothing to remove.")
+            self._logger.debug(f"History file {self._history_file_path} not found, nothing to remove.")
         else:
-             self._logger.debug("History persistence is disabled, no file to remove.")
+            self._logger.debug("History persistence is disabled, no file to remove.")
 
         purpose_text_parts = self._get_initial_purpose_text_parts()
         # Reconstruct the initial prompt structure for resending
         clear_prompt_parts_list: List[str] = []
         if purpose_text_parts:
-             clear_prompt_parts_list.append(MEMORY.INITIAL_INSTRUCTIONS_HEADER)
-             clear_prompt_parts_list.extend(purpose_text_parts)
-             clear_prompt_parts_list.append(MEMORY.INITIAL_START_MARKER)
-             clear_prompt_parts_list.append("Conversation history cleared. I'm ready for a new start. How can I assist you now?")
+            clear_prompt_parts_list.append(MEMORY.INITIAL_INSTRUCTIONS_HEADER)
+            clear_prompt_parts_list.extend(purpose_text_parts)
+            clear_prompt_parts_list.append(MEMORY.INITIAL_START_MARKER)
+            clear_prompt_parts_list.append("Conversation history cleared. I'm ready for a new start. How can I assist you now?")
         else:
-             # Fallback if no initial instructions are defined
-             clear_prompt_parts_list.append("Conversation history cleared. I'm ready for a new start. How can I assist you now?")
+            # Fallback if no initial instructions are defined
+            clear_prompt_parts_list.append("Conversation history cleared. I'm ready for a new start. How can I assist you now?")
 
 
         clear_prompt = "\n".join(part for part in clear_prompt_parts_list if part).strip()
@@ -432,25 +444,25 @@ class GeminiClient:
         if clear_prompt:
             self._logger.debug(f"Resending initial instruction after clear: {clear_prompt[:200]}...")
             try:
-                 # Use the underlying _chat.send_message directly here to avoid adding the
-                 # large instruction text to the self._chat.history that get_history sees
-                 # until the model responds. This keeps the history cleaner.
-                 # Note: The model's response *will* be added by _chat.send_message.
-                 response = self._chat.send_message(
-                     clear_prompt,
-                     generation_config=self._generation_config,
-                 )
-                 self._logger.debug("Initial instruction sent successfully after history clear.")
-                 # Process the model's response to this instruction prompt, if any
-                 if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
-                      model_response_text = "".join([p.text for p in response.candidates[0].content.parts if hasattr(p, 'text')]).strip()
-                      if model_response_text:
-                           print(f"{self.name} (Instruction Response): {model_response_text}")
-                           if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
-                                self.speech_assistant.synthesize_and_speak(model_response_text)
+                # Use the underlying _chat.send_message directly here to avoid adding the
+                # large instruction text to the self._chat.history that get_history sees
+                # until the model responds. This keeps the history cleaner.
+                # Note: The model's response *will* be added by _chat.send_message.
+                response = self._chat.send_message(
+                    clear_prompt,
+                    generation_config=self._generation_config,
+                )
+                self._logger.debug("Initial instruction sent successfully after history clear.")
+                # Process the model's response to this instruction prompt, if any
+                if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
+                    model_response_text = "".join([p.text for p in response.candidates[0].content.parts if hasattr(p, 'text')]).strip()
+                    if model_response_text:
+                        print(f"{self.name} (Instruction Response): {model_response_text}")
+                        if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
+                            self.speech_assistant.synthesize_and_speak(model_response_text)
 
             except Exception as e:
-                 self._logger.error(f"Failed to send initial instruction after history clear: {e}", exc_info=True)
+                self._logger.error(f"Failed to send initial instruction after history clear: {e}", exc_info=True)
 
 
     def _get_initial_purpose_text_parts(self) -> List[str]:
@@ -461,13 +473,13 @@ class GeminiClient:
             instructions_constant = getattr(GeminiConstants, 'HISTORY', [])
 
         if isinstance(instructions_constant, list):
-             purpose_text_parts = [
-                 initial_instruction.format(name=self.name, purpose=self.purpose).strip()
-                 for initial_instruction in instructions_constant
-                 if isinstance(initial_instruction, str) and initial_instruction.strip()
-             ]
+            purpose_text_parts = [
+                initial_instruction.format(name=self.name, purpose=self.purpose).strip()
+                for initial_instruction in instructions_constant
+                if isinstance(initial_instruction, str) and initial_instruction.strip()
+            ]
         else:
-             self._logger.warning("GeminiConstants.HISTORY_INSTRUCTIONS or HISTORY is not a list of strings, cannot load initial prompt parts.")
+            self._logger.warning("GeminiConstants.HISTORY_INSTRUCTIONS or HISTORY is not a list of strings, cannot load initial prompt parts.")
         return purpose_text_parts
 
     def get_history(self) -> List[Dict[str, Any]]:
@@ -485,8 +497,8 @@ class GeminiClient:
         """
         # Validate that the chat object and its history are in a usable state
         if not self._chat or not hasattr(self._chat, 'history') or not isinstance(self._chat.history, list):
-             self._logger.warning("Chat object or its history is not valid or not a list. Cannot retrieve history.")
-             return []
+            self._logger.warning("Chat object or its history is not valid or not a list. Cannot retrieve history.")
+            return []
 
         history_list = []
         self._logger.debug(f"Attempting to process raw self._chat.history containing {len(self._chat.history)} items.")
@@ -500,48 +512,48 @@ class GeminiClient:
 
             # Basic validation: Ensure content has role and parts attributes
             if not hasattr(content, 'role') or not has_parts_attr:
-                 self._logger.warning(f"Skipping history item {i} due to missing 'role' or missing/None 'parts' attribute.")
-                 continue
+                self._logger.warning(f"Skipping history item {i} due to missing 'role' or missing/None 'parts' attribute.")
+                continue
 
             # Role Filtering: Only process turns with standard 'user' or 'model' roles
             if content.role not in ['user', 'model']:
-                 self._logger.debug(f"Skipping history item {i} with non-standard role '{content.role}'.")
-                 continue
+                self._logger.debug(f"Skipping history item {i} with non-standard role '{content.role}'.")
+                continue
 
             # Process Parts: Extract only text parts by iterating directly
             processed_parts = []
             try:
-                 # === FIX: Removed isinstance(content.parts, list) check ===
-                 # Directly iterate over content.parts, assuming it's iterable.
-                 # This works for lists and RepeatedCompositeFieldContainer etc.
-                 for j, part in enumerate(content.parts):
-                      # Check if the part object has a 'text' attribute and it's a string
-                      if hasattr(part, 'text') and isinstance(part.text, str):
-                           # Append the text part as a dictionary in the desired format
-                           processed_parts.append({'text': part.text})
-                           self._logger.debug(f"  Item {i}, Part {j}: Successfully added text part.")
-                      elif part is not None:
-                           # Log if a part is skipped
-                           self._logger.debug(f"  Item {i}, Part {j}: Skipping non-text or malformed part (Type: {type(part).__name__}).")
-                      else:
-                           self._logger.debug(f"  Item {i}, Part {j}: Encountered None part, skipping.")
+                # === FIX: Removed isinstance(content.parts, list) check ===
+                # Directly iterate over content.parts, assuming it's iterable.
+                # This works for lists and RepeatedCompositeFieldContainer etc.
+                for j, part in enumerate(content.parts):
+                    # Check if the part object has a 'text' attribute and it's a string
+                    if hasattr(part, 'text') and isinstance(part.text, str):
+                        # Append the text part as a dictionary in the desired format
+                        processed_parts.append({'text': part.text})
+                        self._logger.debug(f"  Item {i}, Part {j}: Successfully added text part.")
+                    elif part is not None:
+                        # Log if a part is skipped
+                        self._logger.debug(f"  Item {i}, Part {j}: Skipping non-text or malformed part (Type: {type(part).__name__}).")
+                    else:
+                        self._logger.debug(f"  Item {i}, Part {j}: Encountered None part, skipping.")
 
             except TypeError as te:
-                 # Catch if content.parts is somehow not iterable (shouldn't happen if has_parts_attr is true)
-                 self._logger.warning(f"History item {i} (Role: {content.role}) 'parts' attribute (Type: {parts_type_name}) was not iterable. Error: {te}")
-                 continue # Skip this turn
+                # Catch if content.parts is somehow not iterable (shouldn't happen if has_parts_attr is true)
+                self._logger.warning(f"History item {i} (Role: {content.role}) 'parts' attribute (Type: {parts_type_name}) was not iterable. Error: {te}")
+                continue # Skip this turn
             except Exception as e:
-                 # Catch any other unexpected error during iteration
-                 self._logger.error(f"Unexpected error iterating over parts for history item {i} (Role: {content.role}). Error: {e}", exc_info=True)
-                 continue # Skip this turn on error
+                # Catch any other unexpected error during iteration
+                self._logger.error(f"Unexpected error iterating over parts for history item {i} (Role: {content.role}). Error: {e}", exc_info=True)
+                continue # Skip this turn on error
 
             # Append Turn: Add the processed turn dictionary to the history_list
             if processed_parts:
                 history_list.append({"role": content.role, "parts": processed_parts})
                 self._logger.debug(f"Successfully processed and appended turn {len(history_list)} (Item {i}, Role: {content.role}) with {len(processed_parts)} text parts.")
             else:
-                 # Log turns that were skipped because they had no text parts after processing
-                 self._logger.debug(f"Skipping history item {i} (Role: {content.role}) because it contained no valid text parts after processing.")
+                # Log turns that were skipped because they had no text parts after processing
+                self._logger.debug(f"Skipping history item {i} (Role: {content.role}) because it contained no valid text parts after processing.")
 
         self._logger.debug(f"Finished get_history processing. Returning list with {len(history_list)} entries.")
         return history_list
@@ -552,15 +564,15 @@ class GeminiClient:
         handles errors, and returns the model's text response.
         """
         if not user_input_text or not user_input_text.strip():
-             self._logger.warning("Attempted to send empty user input.")
-             return ""
+            self._logger.warning("Attempted to send empty user input.")
+            return ""
 
         try:
             # Get current history length *before* sending to get an accurate log of session turns
             current_history_len = len(self._chat.history) if self._chat and hasattr(self._chat, 'history') else 0
             self._logger.debug(f"Sending message to model ({current_history_len} turns in session history): {user_input_text[:150]}...")
             if not self._chat:
-                 raise RuntimeError("Chat object is not initialized.")
+                raise RuntimeError("Chat object is not initialized.")
 
             # Send the message to the Gemini model
             response = self._chat.send_message(
@@ -572,38 +584,38 @@ class GeminiClient:
 
             # Check for blocking feedback
             if response.prompt_feedback and response.prompt_feedback.block_reason:
-                 block_reason_name = response.prompt_feedback.block_reason.name
-                 safety_details_list = []
-                 if response.prompt_feedback.safety_ratings:
-                       for rating in response.prompt_feedback.safety_ratings:
-                           safety_details_list.append(f"{rating.category.name}: {rating.probability.name}")
-                 block_details = f"Prompt blocked by safety settings ({block_reason_name}). Details: {'; '.join(safety_details_list) if safety_details_list else 'No details provided.'}"
-                 self._logger.warning(block_details)
-                 raise GeminiBlockedError(block_details)
+                block_reason_name = response.prompt_feedback.block_reason.name
+                safety_details_list = []
+                if response.prompt_feedback.safety_ratings:
+                    for rating in response.prompt_feedback.safety_ratings:
+                        safety_details_list.append(f"{rating.category.name}: {rating.probability.name}")
+                block_details = f"Prompt blocked by safety settings ({block_reason_name}). Details: {'; '.join(safety_details_list) if safety_details_list else 'No details provided.'}"
+                self._logger.warning(block_details)
+                raise GeminiBlockedError(block_details)
 
             # Check if response contains expected content
             if not response.candidates or not response.candidates[0].content or not response.candidates[0].content.parts:
-                 candidate_finish_reasons = [str(c.finish_reason) for c in response.candidates if hasattr(c, 'finish_reason')] if response.candidates else ["N/A"]
-                 self._logger.warning(f"API returned a response with no content candidates or parts. Finish reasons: {', '.join(candidate_finish_reasons)}")
-                 raise GeminiResponseParsingError(f"API returned response object with no text content. Finish reasons: {', '.join(candidate_finish_reasons)}")
+                candidate_finish_reasons = [str(c.finish_reason) for c in response.candidates if hasattr(c, 'finish_reason')] if response.candidates else ["N/A"]
+                self._logger.warning(f"API returned a response with no content candidates or parts. Finish reasons: {', '.join(candidate_finish_reasons)}")
+                raise GeminiResponseParsingError(f"API returned response object with no text content. Finish reasons: {', '.join(candidate_finish_reasons)}")
 
             # Extract text from the response parts
             model_response_parts = []
             for part in response.candidates[0].content.parts:
-                 if hasattr(part, 'text') and isinstance(part.text, str):
-                      model_response_parts.append(part.text)
-                 elif part is not None: # Log non-text parts if present
-                      self._logger.debug(f"Ignoring non-text part in model response: {type(part).__name__}")
+                if hasattr(part, 'text') and isinstance(part.text, str):
+                    model_response_parts.append(part.text)
+                elif part is not None: # Log non-text parts if present
+                    self._logger.debug(f"Ignoring non-text part in model response: {type(part).__name__}")
 
             model_response_text = "".join(model_response_parts).strip()
 
             if not model_response_text:
-                 self._logger.warning("API returned response object, but extracted text was empty after stripping.")
-                 # Re-check block reason in case it was missed earlier or is implicit
-                 if response.prompt_feedback and response.prompt_feedback.block_reason:
-                      block_reason_name = response.prompt_feedback.block_reason.name
-                      raise GeminiBlockedError(f"Prompt blocked by safety settings: {block_reason_name} (and returned empty text)")
-                 raise GeminiResponseParsingError("API returned empty text response after extraction.")
+                self._logger.warning("API returned response object, but extracted text was empty after stripping.")
+                # Re-check block reason in case it was missed earlier or is implicit
+                if response.prompt_feedback and response.prompt_feedback.block_reason:
+                    block_reason_name = response.prompt_feedback.block_reason.name
+                    raise GeminiBlockedError(f"Prompt blocked by safety settings: {block_reason_name} (and returned empty text)")
+                raise GeminiResponseParsingError("API returned empty text response after extraction.")
 
             # Attempt to remove potential model-generated prefixes like "--- AI (Turn 1) ---"
             try:
@@ -624,41 +636,41 @@ class GeminiClient:
 
         # --- Specific API Error Handling ---
         except (BadRequest, InvalidArgument) as e:
-             self._logger.error(f"Google API Client Error (Bad Request/Invalid Argument): {type(e).__name__}: {e}", exc_info=True)
-             error_message = str(e)
-             if "safety" in error_message.lower() or "block" in error_message.lower() or "harm" in error_message.lower():
-                  raise GeminiBlockedError(f"API error likely related to content/safety or invalid request format: {error_message}") from e
-             else:
-                  raise GeminiAPIError(f"Client error (Invalid Request) during API call: {error_message}") from e
+            self._logger.error(f"Google API Client Error (Bad Request/Invalid Argument): {type(e).__name__}: {e}", exc_info=True)
+            error_message = str(e)
+            if "safety" in error_message.lower() or "block" in error_message.lower() or "harm" in error_message.lower():
+                raise GeminiBlockedError(f"API error likely related to content/safety or invalid request format: {error_message}") from e
+            else:
+                raise GeminiAPIError(f"Client error (Invalid Request) during API call: {error_message}") from e
 
         except ResourceExhausted as e:
-             self._logger.error(f"Google API Error (Resource Exhausted/Rate Limit): {type(e).__name__}: {e}", exc_info=True)
-             raise GeminiAPIError(f"Rate limit or resource quota exceeded: {str(e)}") from e
+            self._logger.error(f"Google API Error (Resource Exhausted/Rate Limit): {type(e).__name__}: {e}", exc_info=True)
+            raise GeminiAPIError(f"Rate limit or resource quota exceeded: {str(e)}") from e
 
         except (InternalServerError, ServerError) as e:
-              self._logger.error(f"Google API Server Error: {type(e).__name__}: {e}", exc_info=True)
-              raise GeminiAPIError(f"API server error: {str(e)}") from e
+            self._logger.error(f"Google API Server Error: {type(e).__name__}: {e}", exc_info=True)
+            raise GeminiAPIError(f"API server error: {str(e)}") from e
 
         except (RetryError, DeadlineExceeded) as e:
-             self._logger.error(f"Google API Network/Retry Error: {type(e).__name__}: {e}", exc_info=True)
-             # Check for specific safety/block reasons within the error message if available
-             error_message = str(e)
-             if "safety" in error_message.lower() or "block" in error_message.lower() or "harm" in error_message.lower():
-                  raise GeminiBlockedError(f"API request timed out or failed after retries, likely due to content/safety: {error_message}") from e
-             else:
-                  raise GeminiAPIError(f"API request failed after retries or exceeded deadline: {str(e)}") from e
+            self._logger.error(f"Google API Network/Retry Error: {type(e).__name__}: {e}", exc_info=True)
+            # Check for specific safety/block reasons within the error message if available
+            error_message = str(e)
+            if "safety" in error_message.lower() or "block" in error_message.lower() or "harm" in error_message.lower():
+                raise GeminiBlockedError(f"API request timed out or failed after retries, likely due to content/safety: {error_message}") from e
+            else:
+                raise GeminiAPIError(f"API request failed after retries or exceeded deadline: {str(e)}") from e
 
         except ClientError as e:
-             self._logger.error(f"Google API Client Error (General): {type(e).__name__}: {e}", exc_info=True)
-             # Catch any other ClientError not specifically handled
-             raise GeminiAPIError(f"A general client error occurred during API call: {str(e)}") from e
+            self._logger.error(f"Google API Client Error (General): {type(e).__name__}: {e}", exc_info=True)
+            # Catch any other ClientError not specifically handled
+            raise GeminiAPIError(f"A general client error occurred during API call: {str(e)}") from e
 
         # --- Custom Exceptions (Re-raise) ---
         except GeminiBlockedError:
-             raise # Re-raise the specific blocked error
+            raise # Re-raise the specific blocked error
 
         except GeminiResponseParsingError:
-             raise # Re-raise the specific parsing error
+            raise # Re-raise the specific parsing error
 
         # --- Catch All Other Exceptions ---
         except Exception as e:
@@ -721,7 +733,7 @@ class GeminiClient:
                     self._logger.error(f"Error sending initial context message to model: {e}", exc_info=True)
                     # Inform the user if the initial setup message failed
                     if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
-                         self.speech_assistant.synthesize_and_speak("I had trouble setting up the initial conversation context.")
+                        self.speech_assistant.synthesize_and_speak("I had trouble setting up the initial conversation context.")
 
             # Start the main conversation loop
             while True:
@@ -759,7 +771,7 @@ class GeminiClient:
                             snippet_display_length = 100
                             display_snippet = text_snippet[:snippet_display_length]
                             if len(text_snippet) > snippet_display_length:
-                                 display_snippet += '...'
+                                display_snippet += '...'
                             self._logger.info(f"[Turn {i}] {display_role} ({turn.get('role')}): {display_snippet}")
                     else:
                         self._logger.info("Current session history is empty.")
@@ -773,45 +785,41 @@ class GeminiClient:
                         print(f"{self.name}: {response}") # Print the model's response
                         # Speak the response if speech assistant is available
                         if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
-                             self.speech_assistant.synthesize_and_speak(response)
+                            self.speech_assistant.synthesize_and_speak(response)
                         else:
-                             self._logger.debug("speech_assistant is not initialized or missing synthesize_and_speak method.")
+                            self._logger.debug("speech_assistant is not initialized or missing synthesize_and_speak method.")
                 # --- Exception Handling for send_message ---
                 except GeminiBlockedError as e:
                     self._logger.error(f"Response blocked by safety: {e}")
-                    print(f"{self.name}: I'm sorry, I cannot respond to that query due to safety policies.")
                     if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
-                         self.speech_assistant.synthesize_and_speak("I'm sorry, I cannot respond to that query due to safety policies.")
+                        self.speech_assistant.synthesize_and_speak(random.choice(AI_RESPONSES.SECURITY))
                 except GeminiAPIError as e:
                     self._logger.error(f"API error during send_message: {e}")
-                    print(f"{self.name}: I encountered an error communicating with the service.")
                     if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
-                         self.speech_assistant.synthesize_and_speak("I encountered an error communicating with the service.")
+                        self.speech_assistant.synthesize_and_speak(random.choice(AI_RESPONSES.UNAVAILABLE))
                 except GeminiResponseParsingError as e:
                     self._logger.error(f"Error parsing model response: {e}")
-                    print(f"{self.name}: I received an unexpected response format from the service.")
                     if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
-                         self.speech_assistant.synthesize_and_speak("I received an unexpected response format from the service.")
+                        self.speech_assistant.synthesize_and_speak(random.choice(AI_RESPONSES.CONFUSED))
                 except Exception as e:
                     # Catch any other unexpected errors during a conversation turn
                     self._logger.critical(f"An unexpected error occurred during conversation turn: {type(e).__name__}: {e}", exc_info=True)
-                    print(f"{self.name}: An unexpected error occurred.")
                     if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
-                         self.speech_assistant.synthesize_and_speak("An unexpected error occurred.")
+                        self.speech_assistant.synthesize_and_speak(random.choice(AI_RESPONSES.UNEXPECTED))
 
         except (ValueError, ImportError, RuntimeError) as e:
-             # Catch potential errors during client initialization or setup that might occur before the loop
-             self._logger.critical(f"Critical Initialization/Runtime Error before conversation loop started or during execution: {e}", exc_info=True)
+            # Catch potential errors during client initialization or setup that might occur before the loop
+            self._logger.critical(f"Critical Initialization/Runtime Error before conversation loop started or during execution: {e}", exc_info=True)
         except Exception as e:
             # Catch any unhandled exception that might escape the loop or setup
             self._logger.critical(f"An unhandled exception occurred during client execution: {type(e).__name__}: {e}", exc_info=True)
 
         finally:
-             # Ensure history is saved when the program exits the try/except block
-             self._logger.debug("Exiting conversation. Attempting to save history...")
-             try:
-                 self._save_history() # Call the save method
-                 self._logger.debug("History save process finished.")
-             except Exception as e:
-                  # Catch any exceptions specifically during the save process
-                  self._logger.error(f"An error occurred during final history save: {e}", exc_info=True)
+            # Ensure memory is saved when the program exits the try/except block
+            self._logger.debug("Exiting conversation. Attempting to save history...")
+            try:
+                self._remember_memory() # Call the save method
+                self._logger.debug("Finished storing memories.")
+            except Exception as e:
+                # Catch any exceptions specifically during the save process
+                self._logger.error(f"An error while storing memory: {e}", exc_info=True)
