@@ -1,36 +1,19 @@
 import google.generativeai as genai
 import logging
-import json # Keep import, might be useful for debugging/future changes
 import os
 import textwrap
 import re
-import time # Useful for potential retries or timing
-
-# Import the new FileProtector class
 from src.protectors.file_protector import FileProtector # Adjust path as needed
 
 from google.api_core.exceptions import (
-    ClientError,
-    ServerError,
-    RetryError,
-    DeadlineExceeded,
-    ResourceExhausted,
-    InvalidArgument,
-    InternalServerError, # More specific server error
-    BadRequest # More specific client error for invalid requests
+    ClientError, ServerError, RetryError, DeadlineExceeded,
+    ResourceExhausted, InvalidArgument, InternalServerError, BadRequest
 )
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 
-# Assume these exist based on your imports
-# Assume GeminiConstants includes definitions like KDF_SALT_SIZE, KDF_ITERATIONS,
-# ENCRYPTION_ALGORITHM = algorithms.AES, ENCRYPTION_MODE = modes.GCM,
-# AES_KEY_SIZE = 32, IV_NONCE_SIZE = 12 etc. AND HISTORY (or HISTORY_INSTRUCTIONS)
 from src.ai.clients.constants import GEMINI as GeminiConstants, MEMORY, COMMANDS
-# Assume custom exceptions exist
 from src.ai.clients.gemini.exceptions import (
-    GeminiAPIError,
-    GeminiResponseParsingError,
-    GeminiBlockedError
+    GeminiAPIError, GeminiResponseParsingError, GeminiBlockedError
 )
 
 
@@ -62,9 +45,9 @@ class GeminiClient:
         model_name: str = GeminiConstants.MODEL,
         max_output_tokens: int = 150,
         temperature: float = 0.7,
-        max_history_turns: Optional[int] = None,
+        max_history_turns: Optional[Union[int, str]] = None,
         history_file: Optional[str] = MEMORY.NAME,
-        history_dir: str = MEMORY.TYPE, # Added explicit history directory parameter
+        history_dir: str = MEMORY.TYPE,
     ) -> None:
         """
         Initializes the Gemini client, configuring the API, initializing the FileProtector,
@@ -105,17 +88,53 @@ class GeminiClient:
              raise ValueError("max_output_tokens must be a positive integer.")
         if not isinstance(temperature, (int, float)) or not (0.0 <= temperature <= 1.0):
              raise ValueError("temperature must be between 0.0 and 1.0.")
-        if max_history_turns is not None and (not isinstance(max_history_turns, int) or max_history_turns < 0):
-             raise ValueError("max_history_turns must be a non-negative integer or None.")
         if history_file is not None and not isinstance(history_file, str):
              raise ValueError("history_file must be a string basename or None.")
         if not isinstance(history_dir, str) or not history_dir:
              raise ValueError("history_dir must be a non-empty string.")
 
-        self.config = config if config is not None else {} # Ensure config is a dict
+
+        # --- Validate and process max_history_turns INPUT ---
+        # We want self._max_history_turns to be None or a non-negative integer internally.
+        processed_max_history_turns: Optional[int] = None # This will store the final internal value
+
+        if max_history_turns is None:
+             processed_max_history_turns = None # None input -> None internal (means save all)
+             self._logger.debug("max_history_turns input is None, will save all history.")
+        elif isinstance(max_history_turns, int):
+             if max_history_turns < 0:
+                  raise ValueError(f"max_history_turns integer value must be non-negative, but got {max_history_turns}.")
+             processed_max_history_turns = max_history_turns # Valid integer input -> use as int
+             self._logger.debug(f"max_history_turns input is valid integer: {processed_max_history_turns}.")
+        elif isinstance(max_history_turns, str):
+             if max_history_turns.upper() == 'ALL':
+                  processed_max_history_turns = None # "ALL" string input -> None internal (means save all)
+                  self._logger.debug("Mapping max_history_turns string 'ALL' to internal value None (save all).")
+             else:
+                  # It's a string, but not "ALL". Try converting to int.
+                  try:
+                       int_value = int(max_history_turns)
+                       if int_value < 0:
+                            raise ValueError(f"max_history_turns string value must be a non-negative integer string or 'ALL', but got '{max_history_turns}'.")
+                       processed_max_history_turns = int_value # Valid number string -> use as int
+                       self._logger.debug(f"max_history_turns input was number string '{max_history_turns}', successfully converted to integer {processed_max_history_turns}.")
+                  except ValueError:
+                       # It's a non-numeric string other than "ALL"
+                       raise ValueError(f"Invalid string value for max_history_turns: '{max_history_turns}'. Must be None, a non-negative integer string, or 'ALL'.") from None
+        else:
+            # It's some other invalid type (float, list, dict, etc.)
+            raise ValueError(f"Invalid type for max_history_turns: {type(max_history_turns)}. Must be None, an integer, or the string 'ALL'.")
+
+        # Store the processed value in the instance variable.
+        # self._max_history_turns is now guaranteed to be None or a non-negative integer (int).
+        self._max_history_turns: Optional[int] = processed_max_history_turns
+        self._logger.debug(f"Internal self._max_history_turns set to: {self._max_history_turns} (Type: {type(self._max_history_turns)}).")
+
+
+        self.config = config if config is not None else {}
         self.name: str = self.config.get('name', 'AI')
         self.purpose: str = self.config.get('purpose', 'engage in conversation')
-        self.speech_assistant: Any = speech_assistant # Store the speech assistant object
+        self.speech_assistant: Any = speech_assistant
 
         self._api_key: str = api_key
         self._model_name: str = model_name
@@ -123,7 +142,6 @@ class GeminiClient:
             "max_output_tokens": max_output_tokens,
             "temperature": temperature,
         }
-        self._max_history_turns: Optional[int] = max_history_turns
 
         # Construct full history file path
         self._history_file_path: Optional[str] = None
@@ -135,44 +153,34 @@ class GeminiClient:
         self._password: str = api_key # Required for FileProtector
         self._file_protector: Optional[FileProtector] = None
 
-        if self._history_file_path: # Only initialize protector if persistence is enabled
+        if self._history_file_path:
              try:
-                 # Basic check for required constants before passing
                  if not all(hasattr(GeminiConstants, attr) for attr in ['KDF_SALT_SIZE', 'KDF_ITERATIONS', 'ENCRYPTION_ALGORITHM', 'ENCRYPTION_MODE', 'AES_KEY_SIZE', 'IV_NONCE_SIZE']):
                       raise AttributeError("GeminiConstants is missing required cryptographic attributes.")
-
-                 # Pass the relevant constants/config object to FileProtector
                  self._file_protector = FileProtector(self._password, GeminiConstants)
                  self._logger.debug("FileProtector initialized successfully.")
              except (ValueError, AttributeError, ImportError) as e:
                  self._logger.error(f"Failed to initialize FileProtector. History persistence disabled. Error: {e}", exc_info=True)
-                 self._file_protector = None # Disable persistence
-                 self._history_file_path = None # Ensure persistence path is also nullified
+                 self._file_protector = None
+                 self._history_file_path = None
 
 
         # --- Configure the generativeai library ---
         try:
              genai.configure(api_key=self._api_key)
-             # Optional: Check if model exists/is available
-             # self._model = genai.get_model(self._model_name) # This makes __init__ slower, might defer
              self._model = genai.GenerativeModel(self._model_name)
              self._logger.debug(f"GenerativeModel '{self._model_name}' loaded.")
         except Exception as e:
              self._logger.critical(f"Failed to configure genai or load model '{self._model_name}': {e}", exc_info=True)
-             # Re-raise or handle based on whether failure here is fatal
              raise RuntimeError(f"Could not initialize Gemini model: {e}") from e
 
-
-        # --- Start a chat session with an empty history initially. ---
-        # History is added *after* loading, as part of the first message.
         self._chat = self._model.start_chat(history=[])
         self._logger.debug("Chat session started with empty history.")
 
         # --- Load history on startup ---
         self._loaded_history_text: Optional[str] = None
-        # Only attempt load if FileProtector was successfully initialized and a file path exists
         if self._file_protector and self._history_file_path and os.path.exists(self._history_file_path):
-             self._loaded_history_text = self._load_history() # This now calls FileProtector
+             self._loaded_history_text = self._load_history()
              if self._loaded_history_text:
                  self._logger.info(f"Loaded previous conversation history from {self._history_file_path} ({len(self._loaded_history_text)} chars).")
              else:
@@ -182,56 +190,65 @@ class GeminiClient:
         else:
              self._logger.debug("History persistence is disabled.")
 
-
     def _format_history_for_saving(self, history_list: List[Dict[str, Any]]) -> str:
         """
-        Formats the chat history (list of dicts from self.get_history()) into a
-        single string representation suitable for saving and later sending
-        back to the model as context.
-
-        Includes role labels and separates turns explicitly for clarity for the model.
+        Formats the chat history (list of dictionaries) into a single string
+        suitable for saving, using predefined markers.
 
         Args:
-            history_list: A list of turn dictionaries (as returned by self.get_history()).
+            history_list: A list of history turns, where each turn is a dictionary
+                          with 'role' and 'parts' (list of dictionaries, each with 'text').
 
         Returns:
-            A single string representing the formatted history.
+            A formatted string representation of the history, or an empty string
+            if the history list is empty.
         """
         formatted_text = ""
         if not history_list:
             return formatted_text
 
-        # Add a simple header to make it clear what this block is
         formatted_text += f"{MEMORY.HEADER}\n\n"
 
         for turn in history_list:
+            # Ensure turn is a dictionary and has 'role' and 'parts'
+            if not isinstance(turn, dict) or 'role' not in turn or 'parts' not in turn:
+                self._logger.warning(f"Skipping malformed turn in history_list: {turn}")
+                continue
+
             role = turn.get('role', 'unknown')
-            text_content = ""
-            if 'parts' in turn and isinstance(turn['parts'], list):
-                for part in turn['parts']:
-                    # Concatenate text parts within a single turn
+            parts = turn.get('parts', [])
+
+            text_content_parts = []
+            if isinstance(parts, list):
+                for part in parts:
+                    # Ensure part is a dictionary and has a 'text' string key
                     if isinstance(part, dict) and 'text' in part and isinstance(part['text'], str):
-                         text_content += part.get('text', '')
+                         text_content_parts.append(part['text'])
+                    else:
+                         self._logger.warning(f"Skipping malformed part in turn (Role: {role}): {part}")
 
-            if text_content.strip():
-                # Use API roles ('user' or 'model') but capitalize for display/model clarity
+
+            full_text_content = "".join(text_content_parts).strip()
+
+            if full_text_content: # Only add turn if it has text content
                 display_role = role.capitalize() if role in ['user', 'model'] else role
-
-                # Use a clear marker for each turn with role
                 formatted_text += MEMORY.TURN_MARKER.format(role=display_role)
-                # Wrap the text content with indentation for readability/structure for model
-                # Use a safe width, e.g., 80 chars
-                wrapped_text = textwrap.fill(text_content.strip(), width=80, initial_indent="", subsequent_indent="  ").strip()
-                formatted_text += wrapped_text + "\n\n" # Add extra newline between turns
+                # Wrap text for readability, removing leading/trailing whitespace from each turn
+                wrapped_text = textwrap.fill(full_text_content, width=80, initial_indent="", subsequent_indent="  ")
+                formatted_text += wrapped_text.strip() + "\n\n" # Add newline after each turn
 
-        return formatted_text.strip() # Remove trailing whitespace from the whole block
+        return formatted_text.strip() # Final strip removes trailing newlines if any
 
 
     def _save_history(self) -> None:
         """
         Gets the current conversation history from the `self._chat` object,
-        formats it into a single string (applying trimming based on max_history_turns
-        if needed), encrypts it using FileProtector, and saves it to the configured file path.
+        formats it into a single string (applying trimming based on self._max_history_turns
+        which is guaranteed to be None or a non-negative integer). Encrypts and saves.
+
+        - If self._max_history_turns is None, saves the full session history.
+        - If self._max_history_turns is 0, saves an empty history (effectively clears).
+        - If self._max_history_turns > 0, trims to the last N turns before saving.
         """
         # Only save if FileProtector was successfully initialized and history file path is specified
         if not self._file_protector or not self._history_file_path:
@@ -239,79 +256,107 @@ class GeminiClient:
             return
 
         # Manually convert Content objects to dicts for processing/trimming
-        # get_history gives us the list[dict] format needed
+        # Calling the potentially fixed get_history
         current_session_history_dicts = self.get_history()
+        self._logger.debug(f"Retrieved {len(current_session_history_dicts)} entries from current session history before processing.")
 
-        # Apply trimming *before* formatting and saving
-        history_to_save_dicts = current_session_history_dicts
-        if self._max_history_turns is not None:
-             # A turn is typically a (user_message, model_response) pair = 2 entries in history.
-             # We keep the *most recent* turns.
-            max_entries_to_keep = max(0, self._max_history_turns * 2) # Max 0 turns means 0 entries
-            if len(current_session_history_dicts) > max_entries_to_keep:
-                self._logger.debug(f"Trimming history before saving: Keeping last {max_entries_to_keep} entries (max {self._max_history_turns} turns).")
-                history_to_save_dicts = current_session_history_dicts[-max_entries_to_keep:]
-             # If max_history_turns is > 0 but history has < 2 entries (incomplete first turn),
-             # saving it is usually not helpful context for the next session.
-             # If max_entries_to_keep is 0, the slice [-0:] correctly returns an empty list.
-             # If max_entries_to_keep is > 0 and len is less than max_entries_to_keep (e.g. len 1, max_entries 2),
-             # [-2:] returns the whole list, which is fine.
-             # The only specific case to handle is if max_history_turns > 0 but len < 2,
-             # indicating only the first user message is present without a model response.
-             # We generally want to save full turns for context.
-            if self._max_history_turns > 0 and 0 < len(current_session_history_dicts) < 2:
-                self._logger.debug("Current history has only 1 entry (incomplete first turn), skipping save.")
-                history_to_save_dicts = [] # Don't save incomplete first turns if trying to save turns > 0
+        history_to_save_dicts = [] # Initialize as empty list, will be populated based on rules
 
-        # Format the potentially trimmed list of dicts into a single string
+
+        # --- Determine History to Save Based on self._max_history_turns (None or int) ---
+        # self._max_history_turns is guaranteed to be None or a non-negative integer by __init__
+        # This means the comparisons below are safe and will not cause TypeError.
+        if self._max_history_turns is None:
+            # Save the entire current session history if trimming is disabled (None means ALL)
+            history_to_save_dicts = current_session_history_dicts
+            self._logger.debug(f"max_history_turns is None (save all), selecting full current session history ({len(history_to_save_dicts)} entries) for saving.")
+
+        elif self._max_history_turns == 0:
+            # If max_history_turns is 0, save an empty history (effectively clearing)
+            history_to_save_dicts = [] # This is already []
+            self._logger.debug("max_history_turns is 0, selecting empty history for saving.")
+
+        # If we reach here, self._max_history_turns must be an integer > 0
+        elif self._max_history_turns > 0:
+            # Apply trimming logic
+            # Calculate the maximum number of entries to keep (2 entries per turn)
+            max_entries_to_keep = self._max_history_turns * 2
+
+            # Handle incomplete first turns when max_history_turns > 0
+            # If history has 1 entry (user but no model response yet for the first turn)
+            if 0 < len(current_session_history_dicts) < 2 and self._max_history_turns > 0:
+                self._logger.debug(f"max_history_turns is {self._max_history_turns} (>0) but history has only {len(current_session_history_dicts)} entry(s) (incomplete first turn), saving this partial turn.")
+                # In this edge case, save the single entry if it exists and max_history_turns > 0
+                history_to_save_dicts = current_session_history_dicts
+            elif len(current_session_history_dicts) > max_entries_to_keep:
+                 # History is longer than the max allowed entries, trim it
+                 history_to_save_dicts = current_session_history_dicts[-max_entries_to_keep:]
+                 self._logger.debug(f"max_history_turns is {self._max_history_turns} (>0). Trimmed history from {len(current_session_history_dicts)} to {len(history_to_save_dicts)} entries (kept last {max_entries_to_keep}).")
+            else:
+                 # History is shorter than or equal to the max allowed entries (and >= 2 if applicable), save it all
+                 history_to_save_dicts = current_session_history_dicts
+                 self._logger.debug(f"max_history_turns is {self._max_history_turns} (>0). History length ({len(current_session_history_dicts)}) is less than or equal to max entries to keep ({max_entries_to_keep}). Selecting full current history (no trim needed beyond incomplete turn check logic above).")
+
+
+        self._logger.debug(f"History list selected for saving has {len(history_to_save_dicts)} entries.")
+
+        # Format the selected list of dicts into a single string
         history_text = self._format_history_for_saving(history_to_save_dicts)
+        self._logger.debug(f"Formatted history text length before stripping: {len(history_text)}. First 100 chars: '{history_text[:100]}'")
 
-        # If the formatted text is empty after trimming (e.g., max_history_turns=0 or history was empty)
+
+        # If the formatted text is empty or only whitespace after formatting
         if not history_text.strip():
-            self._logger.debug("Formatted history is empty or only whitespace after trimming, ensuring history file is removed.")
+            self._logger.debug("Formatted history is empty or only whitespace, ensuring history file is removed.")
              # Ensure file is removed if history becomes empty, to start fresh next time
-            if os.path.exists(self._history_file_path):
+            if self._history_file_path and os.path.exists(self._history_file_path):
                 try:
                     os.remove(self._history_file_path)
                     self._logger.debug(f"Removed empty history file: {self._history_file_path}")
                 except OSError as e:
                     self._logger.error(f"Error removing empty history file {self._history_file_path}: {e}")
+            # IMPORTANT: Add return here to stop the save process for empty history
+            return
 
+
+        # --- Encryption and Saving ---
         try:
             # Convert the formatted string to bytes using a robust encoding
             history_text_bytes = history_text.encode('utf-8')
 
             # Encrypt the history bytes using the FileProtector
             encrypted_data = self._file_protector.encrypt(history_text_bytes)
+            self._logger.debug(f"Raw history bytes length: {len(history_text_bytes)}, Encrypted data length: {len(encrypted_data)}")
+
+            if not encrypted_data:
+                self._logger.warning("Encryption resulted in empty data, skipping save.")
+                # Optionally remove file here too if it exists from a previous attempt
+                if self._history_file_path and os.path.exists(self._history_file_path):
+                    try:
+                        os.remove(self._history_file_path)
+                    except OSError:
+                        pass # Ignore error if file removal fails here
+                return
+
 
             # Ensure the directory exists before writing the file
             dir_name = os.path.dirname(self._history_file_path)
             if dir_name: # Check if dir_name is not empty (e.g., just a filename)
-                 os.makedirs(dir_name, exist_ok=True) # Create directory if it doesn't exist
+                os.makedirs(dir_name, exist_ok=True) # Create directory if it doesn't exist
 
             # Write the encrypted data to the binary file
-            # Use 'x' mode to avoid overwriting if another process might write (less common here)
-            # or 'wb' (write binary) to simply overwrite. 'wb' is simpler and safer for typical use.
             with open(self._history_file_path, 'wb') as f:
                 f.write(encrypted_data)
 
-            self._logger.info(f"Conversation history saved (encrypted, concatenated) to {self._history_file_path} ({len(history_text_bytes)} bytes raw).")
+            self._logger.info(f"Conversation history saved (encrypted, concatenated) to {self._history_file_path}. Raw size: {len(history_text_bytes)} bytes, Encrypted size: {len(encrypted_data)} bytes.")
 
         except Exception as e:
-            self._logger.error(f"Failed to save encrypted history to {self._history_file_path}: {e}", exc_info=True) # Log traceback on save failure
-
+            self._logger.error(f"Failed to complete the save process for encrypted history to {self._history_file_path}: {e}", exc_info=True)
 
     def _load_history(self) -> Optional[str]:
         """
-        Loads conversation history from the encrypted file using FileProtector,
-        decrypts it, and returns it as a single concatenated string.
-        This loaded string is used only *once* in the initial prompt of a new session.
-
-        Returns:
-            The loaded, decrypted history string, or None if loading/decryption failed
-            or the file was empty/missing.
+        Loads conversation history... (docstring remains the same)
         """
-        # These conditions are checked in __init__ before calling, but defensive checks are fine.
         if not self._file_protector or not self._history_file_path:
              self._logger.debug("History persistence is disabled, cannot load.")
              return None
@@ -320,61 +365,44 @@ class GeminiClient:
             return None
 
         try:
-            # Read the raw encrypted data from the binary file
             with open(self._history_file_path, 'rb') as f:
                 encrypted_data = f.read()
 
             if not encrypted_data:
                  self._logger.debug(f"History file {self._history_file_path} is empty. No history to load.")
-                 # Optionally remove empty file here if desired
-                 # try: os.remove(self._history_file_path) except OSError: pass
                  return None
 
-            # Decrypt the data using the FileProtector (returns bytes or None)
             decrypted_data_bytes = self._file_protector.decrypt(encrypted_data)
 
             if decrypted_data_bytes is None:
-                 # Decryption failed (logged inside FileProtector.decrypt)
                  self._logger.warning(f"Decryption failed for history file {self._history_file_path}. Cannot load history.")
-                 # Consider adding a note/option to delete corrupted history? (Requires user interaction/config)
                  return None
 
-            # Decode the bytes to a string
             history_text_string = decrypted_data_bytes.decode('utf-8')
 
-            # Basic validation: check if the string is not empty after decoding
             if not history_text_string.strip():
                  self._logger.warning(f"Decrypted data from {self._history_file_path} was empty or contained only whitespace after decoding. Cannot load history.")
-                 # Optionally remove empty file here if desired
-                 # try: os.remove(self._history_file_path) except OSError: pass
                  return None
 
-            return history_text_string # Return the loaded concatenated string
+            return history_text_string
 
         except Exception as e:
-            # Catch any other unexpected errors during file read or decoding
             self._logger.error(f"An unexpected error occurred during loading or decoding of {self._history_file_path}: {e}", exc_info=True)
             return None
 
-
     def clear_history(self) -> None:
         """
-        Clears the conversation history in the *current session's* chat object
-        and removes the encrypted history file if persistence is enabled and the file exists.
-        Also re-sends the initial purpose prompt to re-establish context in the new session.
+        Clears the conversation history... (docstring remains the same)
         """
         self._logger.info("Clearing conversation history...")
-        # Clear in-memory history by starting a new chat session
         if self._model:
              self._chat = self._model.start_chat(history=[])
              self._logger.debug("Conversation history cleared in memory.")
-             # Clear the loaded history text if it exists (important for the next session)
              self._loaded_history_text = None
         else:
              self._logger.warning("Model not initialized, cannot clear in-memory history.")
-             return # Cannot proceed without model
+             return
 
-        # Remove the history file if persistence is enabled and file exists
         if self._history_file_path and os.path.exists(self._history_file_path):
             try:
                 os.remove(self._history_file_path)
@@ -386,277 +414,275 @@ class GeminiClient:
         else:
              self._logger.debug("History persistence is disabled, no file to remove.")
 
-
-        # Re-send initial prompt after clearing history to set context again
-        # This message will become the first turn in the newly cleared session's history.
         purpose_text_parts = self._get_initial_purpose_text_parts()
-        clear_prompt_parts = purpose_text_parts + [
-            "Conversation history cleared. I'm ready for a new start. How can I assist you now?"
-        ]
+        # Reconstruct the initial prompt structure for resending
+        clear_prompt_parts_list: List[str] = []
+        if purpose_text_parts:
+             clear_prompt_parts_list.append(MEMORY.INITIAL_INSTRUCTIONS_HEADER)
+             clear_prompt_parts_list.extend(purpose_text_parts)
+             clear_prompt_parts_list.append(MEMORY.INITIAL_START_MARKER)
+             clear_prompt_parts_list.append("Conversation history cleared. I'm ready for a new start. How can I assist you now?")
+        else:
+             # Fallback if no initial instructions are defined
+             clear_prompt_parts_list.append("Conversation history cleared. I'm ready for a new start. How can I assist you now?")
 
-        clear_prompt = " ".join(part.strip() for part in clear_prompt_parts if part).strip()
+
+        clear_prompt = "\n".join(part for part in clear_prompt_parts_list if part).strip()
 
         if clear_prompt:
-                self._logger.debug(f"Resending initial instruction after clear: {clear_prompt[:150]}...")
-                # Send this as a user message to the chat history
-                try:
-                     # send_message will handle the API call and appending to _chat.history
-                     self.send_message(clear_prompt)
-                     self._logger.debug("Initial instruction sent successfully after history clear.")
-                except Exception as e:
-                     self._logger.error(f"Failed to send initial instruction after history clear: {e}", exc_info=True)
+            self._logger.debug(f"Resending initial instruction after clear: {clear_prompt[:200]}...")
+            try:
+                 # Use the underlying _chat.send_message directly here to avoid adding the
+                 # large instruction text to the self._chat.history that get_history sees
+                 # until the model responds. This keeps the history cleaner.
+                 # Note: The model's response *will* be added by _chat.send_message.
+                 response = self._chat.send_message(
+                     clear_prompt,
+                     generation_config=self._generation_config,
+                 )
+                 self._logger.debug("Initial instruction sent successfully after history clear.")
+                 # Process the model's response to this instruction prompt, if any
+                 if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
+                      model_response_text = "".join([p.text for p in response.candidates[0].content.parts if hasattr(p, 'text')]).strip()
+                      if model_response_text:
+                           print(f"{self.name} (Instruction Response): {model_response_text}")
+                           if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
+                                self.speech_assistant.synthesize_and_speak(model_response_text)
+
+            except Exception as e:
+                 self._logger.error(f"Failed to send initial instruction after history clear: {e}", exc_info=True)
 
 
     def _get_initial_purpose_text_parts(self) -> List[str]:
-         """Helper to retrieve initial purpose text parts from constants."""
-         purpose_text_parts: List[str] = []
-         # Prefer HISTORY_INSTRUCTIONS if available, otherwise fall back to HISTORY
-         instructions_constant = getattr(GeminiConstants, 'HISTORY_INSTRUCTIONS', None)
-         if instructions_constant is None:
-             instructions_constant = getattr(GeminiConstants, 'HISTORY', []) # Fallback to HISTORY
+        """Helper to retrieve initial purpose text parts from constants."""
+        purpose_text_parts: List[str] = []
+        instructions_constant = getattr(GeminiConstants, 'HISTORY_INSTRUCTIONS', None)
+        if instructions_constant is None:
+            instructions_constant = getattr(GeminiConstants, 'HISTORY', [])
 
-         if isinstance(instructions_constant, list):
-              purpose_text_parts = [
-                  initial_instruction.format(name=self.name, purpose=self.purpose).strip()
-                  for initial_instruction in instructions_constant
-                  if isinstance(initial_instruction, str) and initial_instruction.strip()
-              ]
-         else:
-              self._logger.warning("GeminiConstants.HISTORY_INSTRUCTIONS or HISTORY is not a list of strings, cannot load initial prompt parts.")
-
-         return purpose_text_parts
-
+        if isinstance(instructions_constant, list):
+             purpose_text_parts = [
+                 initial_instruction.format(name=self.name, purpose=self.purpose).strip()
+                 for initial_instruction in instructions_constant
+                 if isinstance(initial_instruction, str) and initial_instruction.strip()
+             ]
+        else:
+             self._logger.warning("GeminiConstants.HISTORY_INSTRUCTIONS or HISTORY is not a list of strings, cannot load initial prompt parts.")
+        return purpose_text_parts
 
     def get_history(self) -> List[Dict[str, Any]]:
         """
-        Returns a copy of the current conversation history from the `self._chat` object
-        as a list of dictionaries. This reflects the turns accumulated *in the current session*.
-        Content objects are manually converted to a dictionary format.
+        Returns a copy of the current conversation history from the generativeai chat object
+        as a list of dictionaries, representing the structure suitable for saving or display.
+        Filters for 'user' and 'model' roles and includes only text parts from 'parts'.
+
+        Handles the actual iterable type (like RepeatedCompositeFieldContainer) returned by the library for parts.
 
         Returns:
-            A list of dictionaries representing the conversation history turns.
+            A list of history turns, where each turn is a dictionary
+            with 'role' and 'parts' (a list of dictionaries, each with a 'text' key).
+            Returns an empty list if no valid history is available or processed.
         """
-        if self._chat and hasattr(self._chat, 'history') and isinstance(self._chat.history, list):
-            history_list = []
-            # Iterate through the Content objects in the chat history
-            for content in self._chat.history:
-                # Ensure content has role and parts attributes, which Content objects should have
-                if not hasattr(content, 'role') or not hasattr(content, 'parts'):
-                     self._logger.warning(f"Skipping malformed history entry: {content}")
-                     continue
-
-                turn_dict = {"role": content.role, "parts": []}
-                if content.parts and isinstance(content.parts, list):
-                    for part in content.parts:
-                        part_dict = {}
-                        # Extract text part
-                        if hasattr(part, 'text') and isinstance(part.text, str):
-                            part_dict['text'] = part.text
-                        # Add handling for other part types (like image, etc.) if needed in the future
-                        # elif hasattr(part, 'inline_data'): ...
-
-                        if part_dict: # Only append if a valid part was extracted
-                            turn_dict["parts"].append(part_dict)
-
-                # Only append turns that have successfully extracted parts and have a valid role
-                if turn_dict["parts"] and turn_dict.get('role') in ['user', 'model']: # Only append if role is 'user' or 'model'
-                     history_list.append(turn_dict)
-                elif turn_dict["parts"]:
-                    self._logger.warning(f"Skipping history entry with invalid role '{turn_dict.get('role')}': {turn_dict}")
-
-
-            return history_list
-        elif self._chat:
-             self._logger.warning("self._chat exists but its history attribute is missing or not a list.")
-             return []
-        else:
-             self._logger.warning("self._chat is None, cannot retrieve history.")
+        # Validate that the chat object and its history are in a usable state
+        if not self._chat or not hasattr(self._chat, 'history') or not isinstance(self._chat.history, list):
+             self._logger.warning("Chat object or its history is not valid or not a list. Cannot retrieve history.")
              return []
 
+        history_list = []
+        self._logger.debug(f"Attempting to process raw self._chat.history containing {len(self._chat.history)} items.")
+
+        for i, content in enumerate(self._chat.history):
+            role_str = getattr(content, 'role', 'N/A')
+            # Check if parts attribute exists and is not None before trying to iterate
+            has_parts_attr = hasattr(content, 'parts') and content.parts is not None
+            parts_type_name = type(content.parts).__name__ if has_parts_attr else 'N/A'
+            self._logger.debug(f"Processing history item {i}: Role='{role_str}', Parts type='{parts_type_name}'")
+
+            # Basic validation: Ensure content has role and parts attributes
+            if not hasattr(content, 'role') or not has_parts_attr:
+                 self._logger.warning(f"Skipping history item {i} due to missing 'role' or missing/None 'parts' attribute.")
+                 continue
+
+            # Role Filtering: Only process turns with standard 'user' or 'model' roles
+            if content.role not in ['user', 'model']:
+                 self._logger.debug(f"Skipping history item {i} with non-standard role '{content.role}'.")
+                 continue
+
+            # Process Parts: Extract only text parts by iterating directly
+            processed_parts = []
+            try:
+                 # === FIX: Removed isinstance(content.parts, list) check ===
+                 # Directly iterate over content.parts, assuming it's iterable.
+                 # This works for lists and RepeatedCompositeFieldContainer etc.
+                 for j, part in enumerate(content.parts):
+                      # Check if the part object has a 'text' attribute and it's a string
+                      if hasattr(part, 'text') and isinstance(part.text, str):
+                           # Append the text part as a dictionary in the desired format
+                           processed_parts.append({'text': part.text})
+                           self._logger.debug(f"  Item {i}, Part {j}: Successfully added text part.")
+                      elif part is not None:
+                           # Log if a part is skipped
+                           self._logger.debug(f"  Item {i}, Part {j}: Skipping non-text or malformed part (Type: {type(part).__name__}).")
+                      else:
+                           self._logger.debug(f"  Item {i}, Part {j}: Encountered None part, skipping.")
+
+            except TypeError as te:
+                 # Catch if content.parts is somehow not iterable (shouldn't happen if has_parts_attr is true)
+                 self._logger.warning(f"History item {i} (Role: {content.role}) 'parts' attribute (Type: {parts_type_name}) was not iterable. Error: {te}")
+                 continue # Skip this turn
+            except Exception as e:
+                 # Catch any other unexpected error during iteration
+                 self._logger.error(f"Unexpected error iterating over parts for history item {i} (Role: {content.role}). Error: {e}", exc_info=True)
+                 continue # Skip this turn on error
+
+            # Append Turn: Add the processed turn dictionary to the history_list
+            if processed_parts:
+                history_list.append({"role": content.role, "parts": processed_parts})
+                self._logger.debug(f"Successfully processed and appended turn {len(history_list)} (Item {i}, Role: {content.role}) with {len(processed_parts)} text parts.")
+            else:
+                 # Log turns that were skipped because they had no text parts after processing
+                 self._logger.debug(f"Skipping history item {i} (Role: {content.role}) because it contained no valid text parts after processing.")
+
+        self._logger.debug(f"Finished get_history processing. Returning list with {len(history_list)} entries.")
+        return history_list
 
     def send_message(self, user_input_text: str) -> str:
-         """
-         Sends a user message to the Gemini API using the chat session.
-         History included in the API call by the genai library is the turns
-         accumulated in *this session*'s `self._chat.history`.
-         Includes post-processing to remove specific unwanted prefixes from the response.
+        """
+        Sends a user message to the Gemini API via the chat object, processes the response,
+        handles errors, and returns the model's text response.
+        """
+        if not user_input_text or not user_input_text.strip():
+             self._logger.warning("Attempted to send empty user input.")
+             return ""
 
-         Args:
-             user_input_text: The user's message string.
+        try:
+            # Get current history length *before* sending to get an accurate log of session turns
+            current_history_len = len(self._chat.history) if self._chat and hasattr(self._chat, 'history') else 0
+            self._logger.debug(f"Sending message to model ({current_history_len} turns in session history): {user_input_text[:150]}...")
+            if not self._chat:
+                 raise RuntimeError("Chat object is not initialized.")
 
-         Returns:
-             The cleaned model response string.
+            # Send the message to the Gemini model
+            response = self._chat.send_message(
+                user_input_text.strip(),
+                generation_config=self._generation_config,
+            )
+            self._logger.debug("Received response object from model.")
+            self._logger.debug(f"Response has {len(response.candidates) if response.candidates else 0} candidates. Prompt Feedback: {response.prompt_feedback}")
 
-         Raises:
-             ValueError: If user_input_text is empty or only whitespace.
-             GeminiBlockedError: If the prompt or response is blocked by safety settings.
-             GeminiResponseParsingError: If the API returns an unparseable response.
-             GeminiAPIError: For other API-related errors.
-         """
-         if not user_input_text or not user_input_text.strip():
-              self._logger.warning("Attempted to send empty user input.")
-              return "" # Or raise ValueError depending on desired behavior
+            # Check for blocking feedback
+            if response.prompt_feedback and response.prompt_feedback.block_reason:
+                 block_reason_name = response.prompt_feedback.block_reason.name
+                 safety_details_list = []
+                 if response.prompt_feedback.safety_ratings:
+                       for rating in response.prompt_feedback.safety_ratings:
+                           safety_details_list.append(f"{rating.category.name}: {rating.probability.name}")
+                 block_details = f"Prompt blocked by safety settings ({block_reason_name}). Details: {'; '.join(safety_details_list) if safety_details_list else 'No details provided.'}"
+                 self._logger.warning(block_details)
+                 raise GeminiBlockedError(block_details)
 
-         # No trimming happens before each send_message call on the chat object.
-         # The chat object's history grows until explicitly cleared or trimmed on save.
+            # Check if response contains expected content
+            if not response.candidates or not response.candidates[0].content or not response.candidates[0].content.parts:
+                 candidate_finish_reasons = [str(c.finish_reason) for c in response.candidates if hasattr(c, 'finish_reason')] if response.candidates else ["N/A"]
+                 self._logger.warning(f"API returned a response with no content candidates or parts. Finish reasons: {', '.join(candidate_finish_reasons)}")
+                 raise GeminiResponseParsingError(f"API returned response object with no text content. Finish reasons: {', '.join(candidate_finish_reasons)}")
 
-         try:
-             # Pass the message to the chat object's send_message method
-             # This method manages the history sent to the API under the hood.
-             # The number of turns the *API* actually considers might differ based on API limits.
-             self._logger.debug(f"Sending message to model ({len(self._chat.history) if self._chat else 0} turns in session history): {user_input_text[:150]}...")
+            # Extract text from the response parts
+            model_response_parts = []
+            for part in response.candidates[0].content.parts:
+                 if hasattr(part, 'text') and isinstance(part.text, str):
+                      model_response_parts.append(part.text)
+                 elif part is not None: # Log non-text parts if present
+                      self._logger.debug(f"Ignoring non-text part in model response: {type(part).__name__}")
 
-             if not self._chat:
-                  raise RuntimeError("Chat object is not initialized.")
+            model_response_text = "".join(model_response_parts).strip()
 
-             response = self._chat.send_message(
-                 user_input_text.strip(),
-                 generation_config=self._generation_config,
-                 # Add safety_settings if needed here, based on user input or config
-                 # safety_settings=[{ "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}] # Example
-             )
-             self._logger.debug("Received response object from model.")
-             # Log candidate count and prompt feedback status
-             self._logger.debug(f"Response has {len(response.candidates) if response.candidates else 0} candidates. Prompt Feedback: {response.prompt_feedback}")
+            if not model_response_text:
+                 self._logger.warning("API returned response object, but extracted text was empty after stripping.")
+                 # Re-check block reason in case it was missed earlier or is implicit
+                 if response.prompt_feedback and response.prompt_feedback.block_reason:
+                      block_reason_name = response.prompt_feedback.block_reason.name
+                      raise GeminiBlockedError(f"Prompt blocked by safety settings: {block_reason_name} (and returned empty text)")
+                 raise GeminiResponseParsingError("API returned empty text response after extraction.")
 
+            # Attempt to remove potential model-generated prefixes like "--- AI (Turn 1) ---"
+            try:
+                # Be careful with regex patterns, especially with dynamic names
+                # This pattern assumes the format is strictly "--- Name (Turn N) ---" at the start
+                escaped_name = re.escape(self.name)
+                prefix_pattern = re.compile(rf'^---\s*{escaped_name}\s*\(Turn\s*\d+\)\s*---\s*', re.IGNORECASE)
+                match = prefix_pattern.match(model_response_text)
+                if match:
+                    original_response_length = len(model_response_text)
+                    model_response_text = model_response_text[match.end():].strip()
+                    self._logger.debug(f"Removed potential model-generated prefix. Original length: {original_response_length}, New length: {len(model_response_text)}")
+            except Exception as e:
+                self._logger.warning(f"Error during response prefix removal regex: {e}", exc_info=True) # Log regex errors but don't fail
 
-             # --- Response Validation and Extraction ---
+            self._logger.debug(f"Final processed response text (after cleaning): {model_response_text[:150]}...")
+            return model_response_text
 
-             # 1. Check for safety blocks signaled in prompt_feedback
-             if response.prompt_feedback and response.prompt_feedback.block_reason:
-                  block_reason_name = response.prompt_feedback.block_reason.name
-                  safety_details_list = []
-                  if response.prompt_feedback.safety_ratings:
-                        for rating in response.prompt_feedback.safety_ratings:
-                            safety_details_list.append(f"{rating.category.name}: {rating.probability.name}")
-                  block_details = f"Prompt blocked by safety settings ({block_reason_name}). Details: {'; '.join(safety_details_list) if safety_details_list else 'No details provided.'}"
-                  self._logger.warning(block_details)
-                  raise GeminiBlockedError(block_details)
+        # --- Specific API Error Handling ---
+        except (BadRequest, InvalidArgument) as e:
+             self._logger.error(f"Google API Client Error (Bad Request/Invalid Argument): {type(e).__name__}: {e}", exc_info=True)
+             error_message = str(e)
+             if "safety" in error_message.lower() or "block" in error_message.lower() or "harm" in error_message.lower():
+                  raise GeminiBlockedError(f"API error likely related to content/safety or invalid request format: {error_message}") from e
+             else:
+                  raise GeminiAPIError(f"Client error (Invalid Request) during API call: {error_message}") from e
 
-             # 2. Check if candidates exist and have content
-             if not response.candidates or not response.candidates[0].content or not response.candidates[0].content.parts:
-                  # Even if no content, check candidate finish reason for more info
-                  candidate_finish_reasons = [str(c.finish_reason) for c in response.candidates if hasattr(c, 'finish_reason')] if response.candidates else ["N/A"]
-                  self._logger.warning(f"API returned a response with no content candidates or parts. Finish reasons: {', '.join(candidate_finish_reasons)}")
-                  raise GeminiResponseParsingError(f"API returned response object with no text content. Finish reasons: {', '.join(candidate_finish_reasons)}")
+        except ResourceExhausted as e:
+             self._logger.error(f"Google API Error (Resource Exhausted/Rate Limit): {type(e).__name__}: {e}", exc_info=True)
+             raise GeminiAPIError(f"Rate limit or resource quota exceeded: {str(e)}") from e
 
-             # 3. Extract text from the first candidate's content
-             model_response_parts = []
-             for part in response.candidates[0].content.parts:
-                  if hasattr(part, 'text') and isinstance(part.text, str):
-                       model_response_parts.append(part.text)
-                  # Log other part types if encountered unexpectedly
-                  elif part:
-                       self._logger.debug(f"Ignoring non-text part in response: {type(part)}")
+        except (InternalServerError, ServerError) as e:
+              self._logger.error(f"Google API Server Error: {type(e).__name__}: {e}", exc_info=True)
+              raise GeminiAPIError(f"API server error: {str(e)}") from e
 
+        except (RetryError, DeadlineExceeded) as e:
+             self._logger.error(f"Google API Network/Retry Error: {type(e).__name__}: {e}", exc_info=True)
+             # Check for specific safety/block reasons within the error message if available
+             error_message = str(e)
+             if "safety" in error_message.lower() or "block" in error_message.lower() or "harm" in error_message.lower():
+                  raise GeminiBlockedError(f"API request timed out or failed after retries, likely due to content/safety: {error_message}") from e
+             else:
+                  raise GeminiAPIError(f"API request failed after retries or exceeded deadline: {str(e)}") from e
 
-             model_response_text = "".join(model_response_parts).strip()
+        except ClientError as e:
+             self._logger.error(f"Google API Client Error (General): {type(e).__name__}: {e}", exc_info=True)
+             # Catch any other ClientError not specifically handled
+             raise GeminiAPIError(f"A general client error occurred during API call: {str(e)}") from e
 
-             if not model_response_text:
-                  self._logger.warning("API returned response object, but extracted text was empty after stripping.")
-                  # Re-check block reasons defensively, though primary check is above
-                  if response.prompt_feedback and response.prompt_feedback.block_reason:
-                       block_reason_name = response.prompt_feedback.block_reason.name
-                       raise GeminiBlockedError(f"Prompt blocked by safety settings: {block_reason_name}")
-                  # If still no block reason, treat as empty response error
-                  raise GeminiResponseParsingError("API returned empty text response after extraction.")
+        # --- Custom Exceptions (Re-raise) ---
+        except GeminiBlockedError:
+             raise # Re-raise the specific blocked error
 
-             # --- Post-processing: Remove potential model-generated turn prefixes ---
-             # This regex is specific to a format the model *might* generate if prompted
-             # to mimic the history format used for loading. It is somewhat fragile.
-             try:
-                 # Construct a regex pattern to match the specific unwanted prefix: --- Name (Turn N) ---
-                 # Escape special characters in self.name to ensure correct pattern matching
-                 escaped_name = re.escape(self.name)
-                 # Pattern: ^ literal ---, optional whitespace (\s*), escaped name, optional whitespace,
-                 # literal '(', 'Turn', optional whitespace, one or more digits (\d+), optional whitespace,
-                 # literal ')', optional whitespace, literal ---, optional whitespace (\s*)
-                 # Make the group around (Turn N) optional just in case the model omits it,
-                 # although the desired format includes it. Let's stick to the specific pattern expected.
-                 prefix_pattern = re.compile(rf'^---\s*{escaped_name}\s*\(Turn\s*\d+\)\s*---\s*', re.IGNORECASE) # Case-insensitive name match? Depends on desired robustness. Keeping it case-sensitive matches the format exactly.
+        except GeminiResponseParsingError:
+             raise # Re-raise the specific parsing error
 
-                 # Attempt to find the prefix at the *start* of the string
-                 match = prefix_pattern.match(model_response_text)
-                 if match:
-                     original_response_length = len(model_response_text)
-                     # Slice the string from the end of the matched prefix
-                     model_response_text = model_response_text[match.end():].strip()
-                     self._logger.debug(f"Removed potential model-generated prefix. Original length: {original_response_length}, New length: {len(model_response_text)}")
-
-             except Exception as e:
-                 self._logger.warning(f"Error during response prefix removal regex: {e}", exc_info=True)
-                 # Continue with the potentially uncleaned text rather than failing the whole request
-
-             # Return the processed text
-             self._logger.debug(f"Final processed response text (after cleaning): {model_response_text[:150]}...")
-             return model_response_text
-
-         # --- API Error Handling ---
-         # More specific error types first
-         except (BadRequest, InvalidArgument) as e: # InvalidArgument is a ClientError subclass
-              self._logger.error(f"Google API Client Error (Bad Request/Invalid Argument): {type(e).__name__}: {e}", exc_info=True)
-              # Often related to prompt size, content issues, or malformed requests
-              error_message = str(e)
-              if "safety" in error_message.lower() or "block" in error_message.lower():
-                   # Even if not explicitly blocked in prompt_feedback, this error might indicate it
-                   raise GeminiBlockedError(f"API error likely related to content/safety or invalid request: {error_message}") from e
-              else:
-                   raise GeminiAPIError(f"Client error (Invalid Request) during API call: {error_message}") from e
-
-         except ResourceExhausted as e:
-              self._logger.error(f"Google API Error (Resource Exhausted/Rate Limit): {type(e).__name__}: {e}", exc_info=True)
-              raise GeminiAPIError(f"Rate limit or resource quota exceeded: {str(e)}") from e
-
-         except (InternalServerError, ServerError) as e:
-               self._logger.error(f"Google API Server Error: {type(e).__name__}: {e}", exc_info=True)
-               raise GeminiAPIError(f"API server error: {str(e)}") from e
-
-         except (RetryError, DeadlineExceeded) as e:
-              self._logger.error(f"Google API Network/Retry Error: {type(e).__name__}: {e}", exc_info=True)
-              # Could implement retry logic here if desired, but re-raising for now.
-              raise GeminiAPIError(f"API request failed after retries or exceeded deadline: {str(e)}") from e
-
-         except ClientError as e: # Catch any other ClientError subclasses
-              self._logger.error(f"Google API Client Error (General): {type(e).__name__}: {e}", exc_info=True)
-              raise GeminiAPIError(f"A general client error occurred during API call: {str(e)}") from e
-
-         except GeminiBlockedError: # Re-raise custom blocked error caught earlier
-              raise
-
-         except GeminiResponseParsingError: # Re-raise custom parsing error caught earlier
-              raise
-
-         except Exception as e:
-             # Catch any other unexpected errors during the API call or response processing
-             self._logger.critical(f"An unexpected critical error occurred during send_message: {type(e).__name__}: {e}", exc_info=True)
-             raise GeminiAPIError(f"An unexpected internal error occurred during message processing: {e}") from e
+        # --- Catch All Other Exceptions ---
+        except Exception as e:
+            self._logger.critical(f"An unexpected critical error occurred during send_message: {type(e).__name__}: {e}", exc_info=True)
+            # Wrap any other unexpected errors in a general API error
+            raise GeminiAPIError(f"An unexpected internal error occurred during message processing: {e}") from e
 
 
     def start(self) -> None:
         """
-        Starts the interactive conversation loop.
-
-        Handles sending the initial prompt (including loaded history and purpose)
-        to the model at the beginning of the session and then processes
-        user input commands and messages, interacting with the Gemini API.
-        Saves history on exit.
+        Starts the interactive conversation loop in the console.
+        Loads previous history (if any), sends initial context/instructions,
+        and processes user input until the exit command. Saves history on exit.
         """
         try:
             self._logger.info("\n--- Starting Conversation ---")
-
-            # --- Handle initial prompt logic ---
-            # This constructs and sends the *very first* message to the model
-            # in this new chat session. Its response becomes the first model turn.
             initial_message_to_send: Optional[str] = None
-
-            # Get the core purpose text parts from constants
             purpose_text_parts = self._get_initial_purpose_text_parts()
-            purpose_text = "\n".join(purpose_text_parts) # Join with newlines for readability for the model
+            # Combine initial purpose instructions
+            purpose_text = "\n".join(purpose_text_parts) if purpose_text_parts else ""
 
-            # Determine the content of the first message
+            # Construct the initial message to send based on loaded history and purpose
             if self._loaded_history_text:
-                # If history was loaded, combine it with the purpose and send as the first message
-                # Format it clearly so the model understands it's past context vs new instructions
+                # Include loaded history and current instructions for context
                 initial_message_to_send = textwrap.dedent(f"""
                 {MEMORY.INITIAL_CONTEXT_HEADER}
                 The following is a transcript of our previous conversation. Please use it as context for our continued discussion:
@@ -664,17 +690,16 @@ class GeminiClient:
                 {self._loaded_history_text}
 
                 {MEMORY.INITIAL_INSTRUCTIONS_HEADER}
-                Based on our previous conversation (if any) and your purpose as {self.name}, {self.purpose}.
-                {purpose_text}
+                Based on our previous conversation (if any) and your purpose as {self.name}, {self.purpose}:
+                {purpose_text if purpose_text else "Engage in conversation naturally."}
 
                 {MEMORY.INITIAL_START_MARKER}
                 Okay, I'm ready to continue the conversation. How can I assist you further?
                 """).strip()
-                self._loaded_history_text = None # Clear after planning to send - it's now in the first message
-
+                self._loaded_history_text = None # Clear loaded history after using it once
 
             elif purpose_text:
-                # If no history loaded, just send the purpose text as the first message
+                # Only send instructions if no history was loaded
                 initial_message_to_send = textwrap.dedent(f"""
                 {MEMORY.INITIAL_INSTRUCTIONS_HEADER}
                 As {self.name}, your purpose is to {self.purpose}.
@@ -683,112 +708,110 @@ class GeminiClient:
                 {MEMORY.INITIAL_START_MARKER}
                 Okay, I'm ready. How can I assist you?
                 """).strip()
+            # If neither history nor purpose text exists, no initial message is strictly needed
 
-            # Send the initial message if planned
-            # The response to this message becomes the *first* entry from the model in the session history
             if initial_message_to_send:
-                self._logger.debug(f"Sending initial context message ({len(initial_message_to_send)} chars): {initial_message_to_send[:200]}...")
+                self._logger.debug(f"Sending initial context/instruction message ({len(initial_message_to_send)} chars): {initial_message_to_send[:200]}...")
                 try:
-                    # Use send_message which handles API calls and history updates
+                    # Send the initial message. The model's response will be added to history.
+                    # No need to capture/print response here usually, as it's often just acknowledgement.
                     self.send_message(initial_message_to_send)
                     self._logger.info("Initial context message sent successfully.")
                 except Exception as e:
-                    # Log and continue, the conversation might still work but lack initial context
                     self._logger.error(f"Error sending initial context message to model: {e}", exc_info=True)
-                    self.speech_assistant.synthesize_and_speak("I had trouble setting up the initial conversation context.")
+                    # Inform the user if the initial setup message failed
+                    if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
+                         self.speech_assistant.synthesize_and_speak("I had trouble setting up the initial conversation context.")
 
-            # --- Main Conversation Loop ---
+            # Start the main conversation loop
             while True:
                 user_input = input("You: ")
-                user_input = user_input.strip() # Strip leading/trailing whitespace
+                user_input = user_input.strip()
 
                 if not user_input:
-                    continue # Ignore empty input
+                    continue # Skip empty input
 
-                # Process commands
+                # --- Command Handling ---
                 if user_input.lower() == COMMANDS.EXIT:
-                    break
+                    break # Exit the loop
                 if user_input.lower() == COMMANDS.CLEAR_HISTORY:
-                    self.clear_history() # clear_history already re-sends initial prompt
+                    self.clear_history() # Clear history and reset chat state
                     self._logger.info("History cleared. Starting fresh.")
-                    continue
-
+                    continue # Continue to the next input loop iteration
                 if user_input.lower() == COMMANDS.SHOW_HISTORY:
+                    # Display current in-memory session history
                     self._logger.info("--- Current Session History (in-memory) ---")
-                    # get_history shows the history of the *current* chat session
-                    history = self.get_history()
+                    history = self.get_history() # Get history using the method
                     if history:
                         for i, turn in enumerate(history):
                             text_snippet = ""
+                            # Concatenate text parts for display snippet
                             if 'parts' in turn and isinstance(turn['parts'], list):
                                 for part in turn['parts']:
                                     if isinstance(part, dict) and 'text' in part and isinstance(part['text'], str):
-                                        # Display only a snippet of text part for brevity
                                         text_content = part.get('text', '')
-                                        snippet_length = 100
-                                        text_snippet += text_content[:snippet_length]
-                                        if len(text_content) > snippet_length:
-                                             text_snippet += '...'
-                                        break # Display only the first text part of the turn for brevity
-                            display_role = "You" if turn.get('role') == 'user' else self.name # Use self.name for model turns
-                            self._logger.info(f"[Turn {i}] {display_role} ({turn.get('role')}): {text_snippet}")
+                                        text_snippet += text_content # Append all text parts for the snippet
+                                        # Break after the first text part or concatenate a few for a longer snippet?
+                                        # Let's just show the start of the concatenated text for the turn
+                                        break # Show only the first text part's beginning
+                            display_role = "You" if turn.get('role') == 'user' else self.name
+                            # Limit snippet length for display
+                            snippet_display_length = 100
+                            display_snippet = text_snippet[:snippet_display_length]
+                            if len(text_snippet) > snippet_display_length:
+                                 display_snippet += '...'
+                            self._logger.info(f"[Turn {i}] {display_role} ({turn.get('role')}): {display_snippet}")
                     else:
                         self._logger.info("Current session history is empty.")
                     self._logger.info("-------------------------------------------")
-                    continue # Continue the loop after showing history
+                    continue
 
-
-                # Process regular user input by sending it to the model
+                # --- Send User Message to Model ---
                 try:
-                    # send_message handles API communication, response validation,
-                    # post-processing, and updates the _chat.history object.
-                    response = self.send_message(user_input)
-
-                    if response: # Only speak if response text is not empty
-                        print(f"{self.name}: {response}")
-                        # Ensure speech_assistant is not None before calling
+                    response = self.send_message(user_input) # Send the user's message
+                    if response:
+                        print(f"{self.name}: {response}") # Print the model's response
+                        # Speak the response if speech assistant is available
                         if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
                              self.speech_assistant.synthesize_and_speak(response)
                         else:
-                             self._logger.warning("speech_assistant is not initialized or missing synthesize_and_speak method.")
-
+                             self._logger.debug("speech_assistant is not initialized or missing synthesize_and_speak method.")
+                # --- Exception Handling for send_message ---
                 except GeminiBlockedError as e:
-                    self._logger.error(f"Response blocked: {e}")
-                    print(f"{self.name}: I'm sorry, I cannot respond to that query.")
+                    self._logger.error(f"Response blocked by safety: {e}")
+                    print(f"{self.name}: I'm sorry, I cannot respond to that query due to safety policies.")
                     if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
-                         self.speech_assistant.synthesize_and_speak("I'm sorry, I cannot respond to that query.")
-
+                         self.speech_assistant.synthesize_and_speak("I'm sorry, I cannot respond to that query due to safety policies.")
                 except GeminiAPIError as e:
                     self._logger.error(f"API error during send_message: {e}")
                     print(f"{self.name}: I encountered an error communicating with the service.")
                     if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
                          self.speech_assistant.synthesize_and_speak("I encountered an error communicating with the service.")
-
+                except GeminiResponseParsingError as e:
+                    self._logger.error(f"Error parsing model response: {e}")
+                    print(f"{self.name}: I received an unexpected response format from the service.")
+                    if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
+                         self.speech_assistant.synthesize_and_speak("I received an unexpected response format from the service.")
                 except Exception as e:
+                    # Catch any other unexpected errors during a conversation turn
                     self._logger.critical(f"An unexpected error occurred during conversation turn: {type(e).__name__}: {e}", exc_info=True)
                     print(f"{self.name}: An unexpected error occurred.")
                     if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
                          self.speech_assistant.synthesize_and_speak("An unexpected error occurred.")
 
-
-        except ValueError as e:
-            self._logger.error(f"Client Initialization Error during start: {e}", exc_info=True)
-        except ImportError as e:
-            self._logger.error(f"Import Error: {e}. Please ensure all dependencies and local modules are correctly installed and structured.", exc_info=True)
-        except RuntimeError as e:
-             self._logger.error(f"Runtime Error during client initialization or operation: {e}", exc_info=True)
+        except (ValueError, ImportError, RuntimeError) as e:
+             # Catch potential errors during client initialization or setup that might occur before the loop
+             self._logger.critical(f"Critical Initialization/Runtime Error before conversation loop started or during execution: {e}", exc_info=True)
         except Exception as e:
+            # Catch any unhandled exception that might escape the loop or setup
             self._logger.critical(f"An unhandled exception occurred during client execution: {type(e).__name__}: {e}", exc_info=True)
 
-
         finally:
-             # --- Save history on exit ---
-             # This saves the *current session's* history (trimmed according to max_history_turns)
-             # as a single concatenated block for next time.
-             self._logger.debug("Exiting conversation. Saving history...")
+             # Ensure history is saved when the program exits the try/except block
+             self._logger.debug("Exiting conversation. Attempting to save history...")
              try:
-                 self._save_history()
-                 self._logger.info("History save process finished.")
+                 self._save_history() # Call the save method
+                 self._logger.debug("History save process finished.")
              except Exception as e:
-                  # Catch exceptions during save to prevent the finally block from crashing
+                  # Catch any exceptions specifically during the save process
                   self._logger.error(f"An error occurred during final history save: {e}", exc_info=True)

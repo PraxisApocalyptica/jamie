@@ -83,7 +83,7 @@ class GttsTTSClient:
 
 
             # --- 3. Speaking using pydub's playback ---
-            self._logger.info("Speaking...")
+            self._logger.info("🎤 Speaking...")
             # The play function is blocking, it waits until playback is finished
             play(audio_segment)
 

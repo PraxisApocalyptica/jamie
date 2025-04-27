@@ -57,7 +57,7 @@ class ApocalypticaRobot:
            api_key= os.getenv("GEMINI_SECRET_KEY") or self.config['api_keys']['gemini'],
            max_output_tokens=self.config['ai']['gemini'].get('max_tokens', 150),
            temperature=self.config['ai']['gemini'].get('temperature', 0.7),
-           max_history_turns=self.config['ai']['gemini'].get('max_history_turns', 20),
+           max_history_turns=self.config['ai']['gemini'].get('max_history_turns', 'ALL'),
            config=self.config.get('robot', {}),
            speech_assistant=gtts_tts_client
         )
