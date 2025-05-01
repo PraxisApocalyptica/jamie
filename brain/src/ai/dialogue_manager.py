@@ -13,6 +13,7 @@ import threading
 import logging
 
 from typing import Dict, Any, Optional
+from src.ai.task_manager import TaskManager
 # from .nlu_processor import NLUProcessor # Import if not passed in __init__
 # from .task_manager import TaskManager # Import if not passed in __init__
 # from .gemini_client import GeminiAPIClient # Import if not passed in __init__
@@ -25,7 +26,7 @@ class DialogueManager:
     def __init__(
         self,
         # nlu_processor: NLUProcessor,
-        task_manager: Any, # TaskManager or similar
+        task_manager: TaskManager, # TaskManager or similar
         gemini_client: Any, # GeminiAPIClient or similar
         vision_communicator: Any, # PhoneWifiServer or similar
         world_model: Any, # WorldModel or similar
@@ -41,10 +42,14 @@ class DialogueManager:
         self.config = config
 
         self._conversation_context: Dict[str, Any] = {} # State for conversation history, referred entities, etc.
+        self.start_interaction()
+
+    def start_interaction(self):
         # GeminiClient already manages the raw turn history, this is for higher-level context.
         thread = threading.Thread(target=self.gemini_client.start)
         thread.start()
-        # thread.join()
+        thread.join()
+        self.task_manager.sleep()
 
     def handle_user_command(
         self,

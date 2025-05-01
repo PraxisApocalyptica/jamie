@@ -50,6 +50,7 @@ class TaskManager:
         self._current_step_index: int = 0
         self._step_feedback_pending: bool = False # Flag to wait for feedback for the current step
         self._last_step_start_time: float = 0.0 # For timing out steps
+        self.awake = True
 
         # State variables to track ongoing actions if they are async
         # self._is_navigating: bool = False
@@ -355,6 +356,11 @@ class TaskManager:
 
         self._logger.debug("Task Manager is now IDLE.")
 
+    def stay_awake(self):
+        return self.awake
+
+    def sleep(self):
+        self.awake = False
 
     # Optional: Method to handle requests from Dialogue Manager to set a lower priority goal
     # def set_goal_low_priority(self, goal: Dict[str, Any]) -> None:

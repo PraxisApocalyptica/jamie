@@ -4,7 +4,7 @@ from cryptography.hazmat.primitives.ciphers import algorithms, modes
 class GEMINI:
 
     MODEL: str = "gemini-2.0-flash"
-    HISTORY = [
+    INSTRUCTIONS = [
         "Can i call you {name}?",
         "Can you change your purpose to be my {purpose}?",
         "All Responses should be small within a paragraph and as precise and small as much possible",
@@ -45,15 +45,18 @@ class AI_RESPONSES:
 
 class MEMORY:
 
-    NAME = "memory.json.enc"
-    TYPE = "memories"
+    NAME = "memory.json"
+    LOCATION = "memories"
+    FRAGMENT_EXTENSION = "enc"
 
-    HEADER = "--- Previous Conversation History ---"
+    SESSION_FRAGMENT_HEADER = "--- Previous Conversation History ---"
+    FRAGMENT_SEPARATOR = "\n--- END FRAGMENT ---\n"
     TURN_MARKER = "[{role}]: " # {role} placeholder for 'User' or 'Model'
 
     INITIAL_CONTEXT_HEADER = "--- Context ---"
     INITIAL_INSTRUCTIONS_HEADER = "--- Instructions ---"
     INITIAL_START_MARKER = "--- Start ---"
+    FRAGMENT_THRESHOLD = 100 # Fragment threshold in MB.
 
 class COMMANDS:
     EXIT = 'exit'

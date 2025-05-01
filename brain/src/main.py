@@ -202,7 +202,7 @@ class ApocalypticaRobot:
 
         # --- Main Loop ---
         try:
-            while True:
+            while self.task_manager.stay_awake():
                 # This main loop is the heart of the Brain's processing cycle.
                 # It can run periodic tasks and check for conditions.
 
@@ -224,7 +224,7 @@ class ApocalypticaRobot:
 
 
                 # Keep the main loop alive and responsive
-                time.sleep(0.05) # Adjust loop frequency (e.g., 20 Hz)
+                time.sleep(5)
 
         except KeyboardInterrupt:
             self._logger.warning("\nCtrl+C detected. Shutting down.")
