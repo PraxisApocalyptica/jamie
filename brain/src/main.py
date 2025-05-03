@@ -1,6 +1,9 @@
 import time
+import logging
 import threading
 import traceback # Import for logging errors
+
+from dotenv import load_dotenv
 from typing import Dict, Any
 
 # Import your modules from src/
@@ -8,6 +11,7 @@ from src.communication.arduino_serial import ArduinoSerialCommunicator
 from src.communication.phone_wifi_server import PhoneWifiServer
 from src.perception.world_model import WorldModel
 from src.ai.task_manager import TaskManager
+from src.handlers.log_handler import LogHandler 
 from src.config import load_config
 # Import other modules as you implement them:
 # from src.hardware_interfaces.three_d_camera import ThreeDCamera
@@ -17,15 +21,18 @@ from src.config import load_config
 # from src.robotics.path_planning import PathPlanning
 # from src.robotics.grasp_planning import GraspPlanning
 # from src.ai.nlu_processor import NLUProcessor
-# from src.ai.dialogue_manager import DialogueManager
+from src.ai.interactions import Interactions
 # from src.ai.personality import Personality # If separate
-# from src.ai.gemini_client import GeminiAPIClient # For general chat
+
 
 # --- Main Robot Class ---
-class JamieRobot:
-    def __init__(self, config_path="config/robot_config.yaml"):
-        print("Initializing Jamie Robot Brain...")
+class ApocalypticaRobot:
+    def __init__(self, config_path="config/robot.yaml"):
+        self._logger = logging.getLogger(self.__class__.__name__)
+        load_dotenv()
         self.config = load_config(config_path)
+        robot = self.config.get('robot', {})
+        self.name = robot.get('name', 'Jamie')
 
         # --- Communication ---
         self.motion_comm = ArduinoSerialCommunicator(
@@ -41,15 +48,7 @@ class JamieRobot:
         # --- World Model ---
         self.world_model = WorldModel() # Manages robot state, map, objects
 
-        # --- AI and Task Management ---
-        # self.gemini_client = GeminiAPIClient(
-        #    api_key=self.config['api_keys']['gemini'],
-        #    max_output_tokens=self.config['ai']['gemini'].get('max_tokens', 150),
-        #    temperature=self.config['ai']['gemini'].get('temperature', 0.7),
-        #    max_history_turns=self.config['ai']['gemini'].get('max_history_turns', 20)
-        # ) # For general chat
         # self.nlu_processor = NLUProcessor() # For parsing commands from text
-        # self.dialogue_manager = DialogueManager(gemini_client=self.gemini_client, vision_communicator=self.vision_comm) # Manages conversation flow and speaks via Vision
         self.task_manager = TaskManager(
             world_model=self.world_model,
             motion_communicator=self.motion_comm,
@@ -57,9 +56,15 @@ class JamieRobot:
             # kinematics_solver=ArmKinematics(...),
             # path_planner=PathPlanning(...),
             # grasp_planner=GraspPlanning(...),
-            # dialogue_manager=self.dialogue_manager, # To generate spoken responses
+            # interactions=self.interactions, # To generate spoken responses
             # vision_communicator=self.vision_comm, # To send commands/status to Vision
         )
+        self.interactions = Interactions(
+            vision_communicator=self.vision_comm,
+            world_model=self.world_model,
+            config=self.config,
+            task_manager=self.task_manager
+        ) # Manages conversation flow and speaks via Vision
 
         # --- Hardware Interfaces (Direct to Pi) ---
         # self.three_d_camera = ThreeDCamera(camera_id=self.config['sensors']['3d_camera']['id'])
@@ -71,8 +76,6 @@ class JamieRobot:
         # self.slam_localization = SlamLocalization(world_model=self.world_model, ...)
 
 
-        print("Jamie Robot Brain initialized.")
-
     def _handle_vision_data(self, data: Dict[str, Any]) -> None:
         """Callback method to process data received from the Vision (Android/iOS) app."""
         # This method runs in a background thread managed by PhoneWifiServer
@@ -80,7 +83,7 @@ class JamieRobot:
         # Delegate complex tasks (like NLU, Task execution) to the main loop or TaskManager.
 
         # Add logging to see what data is received
-        print(f"Received data from Vision: {data}")
+        self._logger.debug(f"Received data from Vision: {data}")
 
         data_type = data.get("type")
 
@@ -108,28 +111,28 @@ class JamieRobot:
             command_entities = data.get("entities") # Optional: if phone does initial NLU
 
             if command_text:
-                 print(f"Received command text from Vision: {command_text}")
+                 self._logger.debug(f"Received command text from Vision: {command_text}")
                  # <<<<< PROCESS COMMAND >>>>>
                  # 1. If phone didn't do NLU, process it here:
                  #    intent, entities = self.nlu_processor.process(command_text)
-                 # 2. Pass the intent and entities to the Dialogue Manager/TaskManager
-                 #    self.dialogue_manager.handle_user_command(intent, entities, command_text) # Dialogue manager decides if it's chat or task
-                 #    # Or directly trigger TaskManager if Dialogue Manager isn't the first step:
+                 # 2. Pass the intent and entities to the Interactions/TaskManager
+                 #    self.interactions.handle_user_command(intent, entities, command_text) # Interactions decides if it's chat or task
+                 #    # Or directly trigger TaskManager if Interactions isn't the first step:
                  #    # self.task_manager.set_goal_from_command(intent, entities)
                  pass # Placeholder
             elif command_intent: # If phone sent pre-parsed intent
-                 print(f"Received parsed command from Vision: Intent='{command_intent}' Entities={command_entities}")
+                 self._logger.debug(f"Received parsed command from Vision: Intent='{command_intent}' Entities={command_entities}")
                  # <<<<< PROCESS PARSED COMMAND >>>>>
-                 # self.dialogue_manager.handle_user_command(command_intent, command_entities, command_text=None)
+                 # self.interactions.handle_user_command(command_intent, command_entities, command_text=None)
                  # or self.task_manager.set_goal_from_command(command_intent, command_entities)
                  pass # Placeholder
 
         elif data_type == "speech_response_done":
              # Notification from Vision that it finished speaking a response sent earlier
              utterance_id = data.get("utterance_id")
-             print(f"Vision confirmed speaking done for utterance ID: {utterance_id}")
-             # TODO: Dialogue Manager or TaskManager might need this feedback to continue a turn or plan
-             # self.dialogue_manager.on_speaking_finished(utterance_id) # Example
+             self._logger.debug(f"Vision confirmed speaking done for utterance ID: {utterance_id}")
+             # TODO: Interactions or TaskManager might need this feedback to continue a turn or plan
+             # self.interactions.on_speaking_finished(utterance_id) # Example
              pass # Placeholder
 
 
@@ -143,7 +146,7 @@ class JamieRobot:
         # Delegate complex tasks (like triggering reactions) to the main loop or TaskManager.
 
         # Add logging to see what data is received
-        print(f"Received data from Motion: {data}")
+        self._logger.debug(f"Received data from Motion: {data}")
 
         # Data is likely sensor readings (e.g., "SENSOR:pin:value") or acknowledgments (e.g., "NAV_COMPLETE")
         # <<<<< PROCESS ARDUINO DATA >>>>>
@@ -156,7 +159,7 @@ class JamieRobot:
 
 
     def run(self):
-        print("Starting Jamie Robot Brain Main Loop...")
+        self._logger.info(f"Starting {self.name}...")
 
         # --- Connect Components ---
         # Connect to Arduino, register callback for incoming data
@@ -168,25 +171,25 @@ class JamieRobot:
         time.sleep(2)
 
         if not self.motion_comm.is_connected:
-            print("Failed to connect to Motion controller. Exiting.")
-            return
+            self._logger.warning("Failed to connect to Motion controller. Movement is unavailable.")
+            # return
         # is_listening check is done inside vision_comm.start()
 
         # TODO: Connect/Initialize other hardware interfaces (3D camera, encoders)
         # try:
         #     self.three_d_camera.initialize()
-        #     print("3D Camera initialized.")
+        #     self._logger.debug("3D Camera initialized.")
         # except Exception as e:
-        #     print(f"Warning: Failed to initialize 3D Camera: {e}")
+        #     self._logger.warning(f"Warning: Failed to initialize 3D Camera: {e}")
 
 
-        print("All core communication components connected/started.")
+        self._logger.info("All core communication components connected/started.")
         # Optional: Send initial command to Motion (e.g., move arm to home position)
         # self.motion_comm.send_command("J:0:90\n") # Example home command
 
         # --- Main Loop ---
         try:
-            while True:
+            while self.task_manager.stay_awake():
                 # This main loop is the heart of the Brain's processing cycle.
                 # It can run periodic tasks and check for conditions.
 
@@ -208,13 +211,13 @@ class JamieRobot:
 
 
                 # Keep the main loop alive and responsive
-                time.sleep(0.05) # Adjust loop frequency (e.g., 20 Hz)
+                time.sleep(5)
 
         except KeyboardInterrupt:
-            print("\nCtrl+C detected. Shutting down.")
+            self._logger.warning("\nCtrl+C detected. Shutting down.")
 
         except Exception as e:
-            print(f"\nAn unhandled error occurred in the main loop: {e}")
+            self._logger.critical(f"\nAn unhandled error occurred: {e}")
             import traceback
             traceback.print_exc() # Print traceback for debugging
             # Attempt to stop motors as a safety measure
@@ -225,7 +228,7 @@ class JamieRobot:
 
         finally:
             # --- Cleanup ---
-            print("Cleaning up...")
+            self._logger.debug("Cleaning up...")
             # Ensure robot is in a safe state
             self.motion_comm.send_command("STOP\n") # Stop base motors
             # TODO: Send command to move arm to a safe 'home' position
@@ -238,15 +241,18 @@ class JamieRobot:
             # TODO: Shut down other hardware interfaces (3D camera, etc.)
             # self.three_d_camera.shutdown()
 
-            print("Brain shutdown complete.")
+            self._logger.info("Shutdown complete.")
 
 
 # --- Script Entry Point ---
 if __name__ == "__main__":
     # Ensure working directory is the root of the repo or adjust config path
     # The main script is in jamie/brain/src/, config is in jamie/brain/config/
-    # So the path relative to main.py is ../config/robot_config.yaml
-    config_file_relative_path = "../config/robot_config.yaml"
+    # So the path relative to main.py is ../config/robot.yaml
+    config_file_relative_path = "../config/robot.yaml"
+
+    logger_handler = LogHandler()
+    _logger = logger_handler.get_logger()
 
     # Add a check if running from the correct directory (optional but helpful)
     import os
@@ -256,11 +262,11 @@ if __name__ == "__main__":
     config_file_abs_path = os.path.join(script_dir, config_file_relative_path)
 
     if not os.path.exists(config_file_abs_path):
-        print(f"Error: Configuration file not found at {config_file_abs_path}")
-        print(f"Please ensure the script is run from the correct location (e.g., 'cd jamie/brain' then 'python src/main.py')")
+        _logger.error(f"Error: Configuration file not found at {config_file_abs_path}")
+        _logger.warning(f"Please ensure the script is run from the correct location (e.g., 'cd jamie/brain' then 'python src/main.py')")
         exit(1)
 
-    robot = JamieRobot(config_path=config_file_abs_path) # Pass absolute path
+    robot = ApocalypticaRobot(config_path=config_file_abs_path) # Pass absolute path
 
     # Start the robot's main loop
     robot.run()

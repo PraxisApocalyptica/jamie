@@ -1,12 +1,16 @@
 import serial
 import threading
 import time
+import logging
+
 from typing import Callable, Optional
+
 
 class ArduinoSerialCommunicator:
     """Manages serial communication with the Arduino (Motion controller)."""
 
     def __init__(self, port: str, baud_rate: int):
+        self._logger = logging.getLogger(self.__class__.__name__)
         self._port: str = port
         self._baud_rate: int = baud_rate
         self._serial_connection: Optional[serial.Serial] = None
@@ -27,7 +31,7 @@ class ArduinoSerialCommunicator:
             data_handler: A callback function to process received data strings.
         """
         if self.is_connected:
-            print("Serial connection already open.")
+            self._logger.debug("Serial connection already open.")
             return True
 
         self._data_handler = data_handler
@@ -37,10 +41,10 @@ class ArduinoSerialCommunicator:
             # Give Arduino time to reset after connection
             time.sleep(2)
             if self._serial_connection.isOpen():
-                print(f"Serial connection established on {self._port} at {self._baud_rate}")
+                self._logger.debug(f"Serial connection established on {self._port} at {self._baud_rate}")
                 # Clear any buffered data
                 while self._serial_connection.in_waiting > 0:
-                    print("Serial startup msg:", self._serial_connection.readline().decode('utf-8', errors='ignore').strip())
+                    self._logger.debug("Serial startup msg:", self._serial_connection.readline().decode('utf-8', errors='ignore').strip())
 
                 # Start the background read thread
                 self._stop_event.clear() # Ensure the stop event is clear
@@ -50,34 +54,34 @@ class ArduinoSerialCommunicator:
 
                 return True
             else:
-                print("Failed to open serial connection.")
+                self._logger.error("Failed to open serial connection.")
                 self._serial_connection = None # Ensure it's None if not open
                 return False
         except serial.SerialException as e:
-            print(f"Could not connect serial port {self._port}: {e}")
+            self._logger.error(f"Could not connect serial port {self._port}: {e}")
             self._serial_connection = None
             return False
         except Exception as e:
-             print(f"An unexpected error occurred during serial connect: {e}")
+             self._logger.critical(f"An unexpected error occurred during serial connect: {e}")
              self._serial_connection = None
              return False
 
 
     def disconnect(self) -> None:
         """Closes the serial connection and stops the read thread."""
-        print("Attempting to disconnect serial...")
+        self._logger.debug("Attempting to disconnect serial...")
         self._stop_event.set() # Signal the thread to stop
         if self._read_thread and self._read_thread.is_alive():
             self._read_thread.join(timeout=1.0) # Wait for the thread to finish (with timeout)
             if self._read_thread.is_alive():
-                print("Warning: Read thread did not join cleanly.") # May need stronger thread termination depending on OS/serial library
+                self._logger.warning("Read thread did not join cleanly.") # May need stronger thread termination depending on OS/serial library
 
         if self._serial_connection and self._serial_connection.isOpen():
             try:
                 self._serial_connection.close()
-                print("Serial connection closed.")
+                self._logger.debug("Serial connection closed.")
             except Exception as e:
-                print(f"Error closing serial connection: {e}")
+                self._logger.critical(f"Error closing serial connection: {e}")
             finally:
                  self._serial_connection = None
 
@@ -85,7 +89,7 @@ class ArduinoSerialCommunicator:
     def _read_serial_thread(self) -> None:
         """Background thread function to read data from the serial port."""
         read_buffer = ""
-        print("Serial read thread started.")
+        self._logger.debug("Serial read thread started.")
         # Read until stop event is set or connection is lost
         while not self._stop_event.is_set() and self.is_connected:
             try:
@@ -107,12 +111,12 @@ class ArduinoSerialCommunicator:
                 time.sleep(0.005) # Small sleep
 
             except serial.SerialException as e:
-                print(f"Serial read thread error: {e}")
+                self._logger.error(f"Serial read thread error: {e}")
                 # Connection likely broken, signal disconnection
                 self.disconnect() # Disconnect and stop thread
                 break # Exit thread loop
             except Exception as e:
-                print(f"An unexpected error in serial read thread: {e}")
+                self._logger.critical(f"An unexpected error in serial read thread: {e}")
                 # Decide how to handle unexpected errors (e.g., try to disconnect/reconnect)
                 time.sleep(0.1) # Wait before continuing loop
 
@@ -131,12 +135,12 @@ class ArduinoSerialCommunicator:
                     command += '\n'
                 # Encode string to bytes and write
                 self._serial_connection.write(command.encode('utf-8'))
-                # print(f"Sent to Arduino: {command.strip()}") # Debugging
+                # self._logger.debug(f"Sent to Arduino: {command.strip()}") # Debugging
 
             except serial.SerialException as e:
-                print(f"Error sending command '{command.strip()}': {e}")
+                self._logger.error(f"Error sending command '{command.strip()}': {e}")
                 # Handle error (e.g., attempt reconnection)
             except Exception as e:
-                print(f"An unexpected error sending command: {e}")
+                self._logger.critical(f"An unexpected error sending command: {e}")
         else:
-            print(f"Not connected to serial. Cannot send command: {command.strip()}")
+            self._logger.warning(f"Not connected to serial. Cannot send command: {command.strip()}")

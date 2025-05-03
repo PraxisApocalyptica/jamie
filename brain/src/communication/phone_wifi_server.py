@@ -2,12 +2,16 @@ import socket
 import threading
 import json
 import time
+import logging
+
 from typing import Callable, Optional, Dict, Any
+
 
 class PhoneWifiServer:
     """Manages a Wi-Fi server to receive data (JSON) from the Android (Vision) app."""
 
     def __init__(self, host: str, port: int, data_handler: Callable[[Dict[str, Any]], None]):
+        self._logger = logging.getLogger(self.__class__.__name__)
         self._host: str = host
         self._port: int = port
         self._data_handler: Callable[[Dict[str, Any]], None] = data_handler
@@ -33,7 +37,7 @@ class PhoneWifiServer:
     def start(self, data_handler: Optional[Callable[[Dict[str, Any]], None]] = None) -> bool:
         """Starts the Wi-Fi server listening thread."""
         if self.is_listening:
-            print("Wi-Fi server is already listening.")
+            self._logger.debug("Wi-Fi server is already listening.")
             return True
 
         # Allow updating the data handler during start if needed, otherwise use the one from init
@@ -46,7 +50,7 @@ class PhoneWifiServer:
             self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self._server_socket.bind((self._host, self._port))
             self._server_socket.listen(1) # Listen for maximum 1 client (the phone)
-            print(f"Wi-Fi server listening on {self._host}:{self._port}")
+            self._logger.info(f"Wi-Fi server listening on {self._host}:{self._port}")
 
             self._stop_event.clear()
             self._listen_thread = threading.Thread(target=self._listen_for_clients_thread)
@@ -55,13 +59,13 @@ class PhoneWifiServer:
 
             return True
         except Exception as e:
-            print(f"Error starting Wi-Fi server: {e}")
+            self._logger.critical(f"Error starting Wi-Fi server: {e}")
             self._server_socket = None
             return False
 
     def stop(self) -> None:
         """Stops the Wi-Fi server and disconnects any connected client."""
-        print("Attempting to stop Wi-Fi server...")
+        self._logger.debug("Attempting to stop Wi-Fi server...")
         self._stop_event.set() # Signal threads to stop
         self.disconnect_client() # Disconnect any currently connected client
 
@@ -74,28 +78,28 @@ class PhoneWifiServer:
 
             try:
                 self._server_socket.close()
-                print("Wi-Fi server socket closed.")
+                self._logger.debug("Wi-Fi server socket closed.")
             except Exception as e:
-                print(f"Error closing server socket: {e}")
+                self._logger.critical(f"Error closing server socket: {e}")
             finally:
                 self._server_socket = None
 
         if self._listen_thread and self._listen_thread.is_alive():
             self._listen_thread.join(timeout=1.0)
             if self._listen_thread.is_alive():
-                print("Warning: Listen thread did not join cleanly.")
+                self._logger.warning("Listen thread did not join cleanly.")
 
 
     def _listen_for_clients_thread(self) -> None:
         """Background thread to accept client connections."""
-        print("Wi-Fi listen thread started.")
+        self._logger.debug("Wi-Fi listen thread started.")
         self._server_socket.settimeout(1.0) # Set a timeout so accept is not blocking forever
 
         while not self._stop_event.is_set():
             try:
                 # Accept a new connection
                 client_socket, client_address = self._server_socket.accept()
-                print(f"Client connected from {client_address}")
+                self._logger.debug(f"Client connected from {client_address}")
 
                 # Disconnect previous client if any (only expecting one)
                 self.disconnect_client()
@@ -114,18 +118,18 @@ class PhoneWifiServer:
             except Exception as e:
                 # Handle other potential errors during accept (e.g., server socket closed)
                 if not self._stop_event.is_set():
-                    print(f"Error accepting client connection: {e}")
+                    self._logger.error(f"Error accepting client connection: {e}")
                 time.sleep(0.1) # Wait before trying again (prevents busy loop if error is persistent)
 
-        print("Wi-Fi listen thread stopped.")
+        self._logger.debug("Wi-Fi listen thread stopped.")
 
 
     def _read_client_data_thread(self) -> None:
         """Background thread to read data from a connected client (phone)."""
-        print(f"Client read thread started for {self._client_address}")
+        self._logger.debug(f"Client read thread started for {self._client_address}")
         client_socket = self._client_socket # Use the current client socket
         if client_socket is None:
-            print("Error: Read thread started without a valid client socket.")
+            self._logger.error("Error: Read thread started without a valid client socket.")
             return
 
         # Use a file-like object for easier reading of lines
@@ -140,7 +144,7 @@ class PhoneWifiServer:
                         # Read a line from the socket (blocks up to timeout)
                         line = client_file.readline()
                         if not line: # readline returns empty string if socket is closed
-                            print(f"Client {self._client_address} disconnected.")
+                            self._logger.info(f"Client {self._client_address} disconnected.")
                             break # Exit loop if client disconnects
 
                         line = line.strip()
@@ -156,9 +160,9 @@ class PhoneWifiServer:
                                     # For simplicity here, calling directly.
                                     self._data_handler(data)
                             except json.JSONDecodeError:
-                                print(f"Received invalid JSON from {self._client_address}: {line}")
+                                self._logger.error(f"Received invalid JSON from {self._client_address}: {line}")
                             except Exception as e:
-                                print(f"Error processing received data from {self._client_address}: {e}")
+                                self._logger.critical(f"Error processing received data from {self._client_address}: {e}")
 
                     except socket.timeout:
                         # Timeout occurred, check stop_event and continue reading
@@ -166,25 +170,25 @@ class PhoneWifiServer:
                     except Exception as e:
                          # Handle other potential errors during reading
                          if self.is_client_connected: # Report error only if connection was active
-                             print(f"Error reading from client {self._client_address}: {e}")
+                             self._logger.error(f"Error reading from client {self._client_address}: {e}")
                          break # Exit loop on read error
 
         finally:
             # Ensure client is disconnected if we exit the loop
             self.disconnect_client()
-            print(f"Client read thread stopped for {self._client_address}.")
+            self._logger.debug(f"Client read thread stopped for {self._client_address}.")
 
 
     def disconnect_client(self) -> None:
         """Disconnects the currently connected client."""
         if self._client_socket and self.is_client_connected:
-            print(f"Disconnecting client {self._client_address}...")
+            self._logger.debug(f"Disconnecting client {self._client_address}...")
             try:
                 # Attempt graceful shutdown
                 self._client_socket.shutdown(socket.SHUT_RDWR)
                 self._client_socket.close()
             except Exception as e:
-                print(f"Error closing client socket: {e}")
+                self._logger.error(f"Error closing client socket: {e}")
             finally:
                 self._client_socket = None # Clear client socket reference
                 self._client_address = None
@@ -196,9 +200,9 @@ class PhoneWifiServer:
             try:
                 message = json.dumps(data) + '\n' # Send JSON string terminated by newline
                 self._client_socket.sendall(message.encode('utf-8'))
-                # print(f"Sent to client {self._client_address}: {message.strip()}") # Debugging
+                # self._logger.debug(f"Sent to client {self._client_address}: {message.strip()}") # Debugging
             except Exception as e:
-                print(f"Error sending data to client {self._client_address}: {e}")
+                self._logger.critical(f"Error sending data to client {self._client_address}: {e}")
                 # Assume connection lost on send error
                 self.disconnect_client()
 

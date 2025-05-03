@@ -1,4 +1,8 @@
-# --- Robot Configuration ---
+# --- Configuration ---
+
+robot:
+  name: Jamie
+  purpose: Robotic Friend
 
 motion:
   serial_port: /dev/ttyACM0 # <<<<< Set your Arduino's serial port >>>>>
@@ -16,11 +20,9 @@ ai:
   gemini:
     max_tokens: 150       # Max tokens for AI responses
     temperature: 0.7
-    max_history_turns: 20 # Max turns to keep in conversation history
+    max_history_turns: ALL # Max turns to keep in conversation history
   # nlu:
   #   model_path: "path/to/nlu/model"
-  # dialogue:
-  #   # Dialogue specific parameters
   # personality:
   #   # Personality traits or parameters
 
@@ -62,43 +64,3 @@ task_manager:
 
 power:
   low_battery_threshold: 0.15 # 15%, example threshold to trigger finding charger
-```
-
-echo "brain/config/robot_config.yaml created."
-
-# brain/calibration/* (Placeholder files)
-echo "Creating brain/calibration placeholder files..."
-touch "$PROJECT_ROOT/brain/calibration/camera_intrinsics.yaml"
-touch "$PROJECT_ROOT/brain/calibration/base_to_arm_transform.yaml"
-touch "$PROJECT_ROOT/brain/calibration/phone_to_base_transform.yaml"
-touch "$PROJECT_ROOT/brain/calibration/encoder_params.yaml"
-echo "brain/calibration placeholder files created."
-
-# brain/models/jamie_arm.urdf (Placeholder)
-echo "Creating brain/models/jamie_arm.urdf placeholder file..."
-cat << 'EOF' > "$PROJECT_ROOT/brain/models/jamie_arm.urdf"
-<?xml version="1.0"?>
-<robot name="jamie_arm">
-  <!-- This is a placeholder file -->
-  <!-- Define your robotic arm's links and joints here in URDF format -->
-  <!-- This model is essential for Inverse Kinematics calculations -->
-  <link name="base_link"/>
-  <!-- Add joints and links for your 6 DOF arm -->
-  <!-- Example: -->
-  <!-- <joint name="base_joint" type="revolute">
-    <parent link="base_link"/>
-    <child link="link1"/>
-    <origin xyz="0 0 0.1" rpy="0 0 0"/>
-    <axis xyz="0 0 1"/>
-    <limit lower="-3.14" upper="3.14" effort="100" velocity="1"/>
-  </joint>
-  <link name="link1">
-    <visual>
-      <geometry>
-        <cylinder length="0.3" radius="0.05"/>
-      </geometry>
-    </visual>
-  </link> -->
-  <!-- ... continue for all links and joints ... -->
-  <link name="gripper_tip"/>
-</robot>
