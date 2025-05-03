@@ -1,5 +1,7 @@
 from cryptography.hazmat.primitives.ciphers import algorithms, modes
 
+import textwrap
+
 
 class GEMINI:
 
@@ -62,3 +64,49 @@ class COMMANDS:
     EXIT = 'exit'
     CLEAR_HISTORY = 'clear history'
     SHOW_HISTORY = 'show history'
+
+class HIVE_MIND:
+    DEFAULT_MEMBER_COUNT = 3
+    MAX_DELIBERATION_ROUNDS = 2
+    PROMPTS = {
+        "INITIAL_THOUGHTS": textwrap.dedent("""
+            You are a member of an AI collective tasked with reaching a decision.
+            The topic for deliberation is: {topic}
+
+            Provide your initial thoughts and proposals regarding this topic.
+            Focus on your individual perspective and expertise. Be concise.
+            State your main idea or suggestion clearly.
+            The decision should be precise and less than 250 characters.
+            It should not include symbols as it has to be spoken.
+
+            1. Example with only normal response
+            capabilities = [provide_normal_reply(input)]
+            2. Example which requires only discussion
+            capabilities = [deliberate_and_decide(input)]
+            3. Example which requires only actions
+            capabilities = [plan_action_sequence([{{'interface': 'Movement', 'action': 'move_forward', 'params': {{'distance': 2.0}}}},
+                    {{'interface': 'Perception', 'action': 'capture_image', 'params': {{'sensor_id': 'head_cam'}}}}])]
+            4. Example with normal response and actions
+            capabilities = [provide_normal_reply(input), plan_action_sequence([{{'interface': 'Movement', 'action': 'move_forward', 'params': {{'distance': 2.0}}}},
+                    {{'interface': 'Perception', 'action': 'capture_image', 'params': {{'sensor_id': 'head_cam'}}}}])]
+            5. Example with discussion and actions
+            capabilities = [deliberate_and_decide(input), plan_action_sequence([{{'interface': 'Movement', 'action': 'move_forward', 'params': {{'distance': 2.0}}}},
+                    {{'interface': 'Perception', 'action': 'capture_image', 'params': {{'sensor_id': 'head_cam'}}}}])]
+            input is the initial text provided by user.
+            Response should only contain capabilities and its values like the above example.
+            Example: Move forward
+            capabilities = [plan_action_sequence([{{'interface': 'Movement', 'action': 'move_forward', 'params': {{'distance': 2.0}}}}]
+        """.strip()).strip(),
+        "SYNTHESIZE_AND_DECIDE": textwrap.dedent("""
+            You are a member of an AI collective.
+            The topic under deliberation is: {topic}
+            Other members have provided their initial thoughts. Here are their perspectives:
+
+            {individual_responses}
+
+            Synthesize these points, considering the different ideas presented.
+            Identify common ground, potential conflicts, or complementary aspects.
+            Based on this collective input, propose a single, consolidated collective decision or recommendation.
+            State the final decision clearly at the end of your response.
+        """).strip()
+    }

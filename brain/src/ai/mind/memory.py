@@ -47,6 +47,7 @@ class Memory:
         memory_file_prefix: Optional[str] = MEMORY.NAME,
         memory_location: str = MEMORY.LOCATION,
         fragment_extension: str = MEMORY.FRAGMENT_EXTENSION,
+        remember_memories: bool = False,
         # Added placeholder for config, model, etc., needed by _get_initial_purpose
         # and _chat instantiation, though not fully shown in the provided snippet.
         # Assuming these are passed or available via constants/attributes.
@@ -175,18 +176,18 @@ class Memory:
         self.name: Any = None
         self.purpose: Any = None
 
-
-        # --- Load memory fragments on startup ---
         self._memory_fragments: List[str] = [] # Stores decrypted fragment texts (long-term memory)
-        if self._file_protector and self._memory_file_pattern:
-            self._memory_fragments = self._load_memory_fragments(self._memory_dir_path, self._memory_file_prefix)
-            if self._memory_fragments:
-                total_chars = sum(len(f) for f in self._memory_fragments)
-                self._logger.info(f"Loaded {len(self._memory_fragments)} memory fragments from {self._memory_dir_path} ({total_chars} total chars).")
+        if remember_memories:
+            # --- Load memory fragments on startup ---
+            if self._file_protector and self._memory_file_pattern:
+                self._memory_fragments = self._load_memory_fragments(self._memory_dir_path, self._memory_file_prefix)
+                if self._memory_fragments:
+                    total_chars = sum(len(f) for f in self._memory_fragments)
+                    self._logger.info(f"Loaded {len(self._memory_fragments)} memory fragments from {self._memory_dir_path} ({total_chars} total chars).")
+                else:
+                    self._logger.debug(f"No memory fragments found or loaded from {self._memory_dir_path}.")
             else:
-                self._logger.debug(f"No memory fragments found or loaded from {self._memory_dir_path}.")
-        else:
-            self._logger.debug("Memory persistence is disabled. No fragments loaded.")
+                self._logger.debug("Memory persistence is disabled. No fragments loaded.")
 
         # --- Initialize the chat session *after* memory fragments are loaded ---
         # This ensures a chat object exists even if no model was initialized yet.

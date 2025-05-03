@@ -58,6 +58,8 @@ class GeminiClient(Memory):
         memory_file_prefix: Optional[str] = MEMORY.NAME,
         memory_location: str = MEMORY.LOCATION,
         fragment_extension: str = MEMORY.FRAGMENT_EXTENSION,
+        remember_memories: bool = False,
+        hive_mind = None,
     ) -> None:
         """
         Initializes the Gemini client, configuring the API, initializing the FileProtector,
@@ -93,7 +95,7 @@ class GeminiClient(Memory):
         """
         self._logger = logging.getLogger(self.__class__.__name__)
         super().__init__(api_key, max_history_turns, memory_file_prefix,
-                       memory_location, fragment_extension)
+                       memory_location, fragment_extension, remember_memories)
 
         # --- Input Validation ---
         if not api_key:
@@ -116,6 +118,7 @@ class GeminiClient(Memory):
             "max_output_tokens": max_output_tokens,
             "temperature": temperature,
         }
+        self.remember_memories = remember_memories
 
         # --- Configure the generativeai library ---
         try:
@@ -127,6 +130,7 @@ class GeminiClient(Memory):
             raise RuntimeError(f"Could not initialize Gemini model: {e}") from e
 
         # The chat object starts empty; loaded memory is added to the *first* prompt.
+        self.hive_mind = hive_mind
         self._chat = self._model.start_chat(history=[])
         self._logger.debug("Chat session started with empty history.")
 
@@ -288,9 +292,7 @@ class GeminiClient(Memory):
 
                 except Exception as e:
                     self._logger.error(f"Error sending initial context message to model: {e}", exc_info=True)
-                    # Inform the user if the initial setup message failed
-                    if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
-                        self.speech_assistant.synthesize_and_speak("I had trouble setting up the initial conversation context.")
+
             else:
                 self._logger.info("No initial context or instructions to send. Starting with an empty initial message.")
 
@@ -343,6 +345,7 @@ class GeminiClient(Memory):
 
                 # --- Send User Message to Model ---
                 try:
+                    self.hive_mind.deliberate(user_input)
                     response = self.communicate(user_input) # Send the user's message
                     if response:
                         # Speak the response if speech assistant is available
@@ -379,11 +382,13 @@ class GeminiClient(Memory):
         finally:
             # Ensure memory is saved when the program exits the try/except block
             self._logger.debug("Exiting conversation. Attempting to save current session history as a new memory fragment...")
-            try:
-                self._save_current_memory_as_fragment() # Call the new save method
-                self._logger.debug("Finished storing current session as a memory fragment.")
-            except Exception as e:
-                # Catch any exceptions specifically during the save process
-                self._logger.error(f"An error while saving current session history as a memory fragment: {e}", exc_info=True)
+            if self.remember_memories:
+                try:
+                    self._save_current_memory_as_fragment() # Call the new save method
+                    self._logger.debug("Finished storing current session as a memory fragment.")
+                except Exception as e:
+                    # Catch any exceptions specifically during the save process
+                    self._logger.error(f"An error while saving current session history as a memory fragment: {e}", exc_info=True)
 
+            self.hive_mind.shutdown()
             self._logger.info("--- Conversation Ended ---")

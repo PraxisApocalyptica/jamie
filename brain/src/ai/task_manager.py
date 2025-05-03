@@ -10,7 +10,8 @@
 # - Sensor Handlers: To receive and interpret feedback (e.g., "arrived", "grasp confirmed", "bump").
 
 import logging
-import time # For timing actions or adding delays
+import time
+import threading
 
 from typing import Dict, Any, List, Optional
 
@@ -50,6 +51,7 @@ class TaskManager:
         self._current_step_index: int = 0
         self._step_feedback_pending: bool = False # Flag to wait for feedback for the current step
         self._last_step_start_time: float = 0.0 # For timing out steps
+        self.tasks:  List[threading.Thread] = []
         self.awake = True
 
         # State variables to track ongoing actions if they are async
@@ -57,6 +59,10 @@ class TaskManager:
         # self._is_arm_moving: bool = False
         # self._expected_feedback_id: Optional[str] = None # What specific feedback are we waiting for?
 
+    def assign_task(self, activity):
+        task = threading.Thread(target=activity)
+        task.start()
+        self.tasks.append(task)
 
     def is_robot_busy(self) -> bool:
         """Checks if the robot is currently executing a task."""
@@ -360,6 +366,9 @@ class TaskManager:
         return self.awake
 
     def sleep(self):
+        for task in self.tasks:
+            task.join()
+
         self.awake = False
 
     # Optional: Method to handle requests from Dialogue Manager to set a lower priority goal

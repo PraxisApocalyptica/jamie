@@ -23,8 +23,6 @@ from src.config import load_config
 # from src.ai.nlu_processor import NLUProcessor
 from src.ai.dialogue_manager import DialogueManager
 # from src.ai.personality import Personality # If separate
-from src.ai.clients.gemini.client import GeminiClient # For general chat
-from src.ai.clients.speech.google_tts import GttsTTSClient
 
 
 # --- Main Robot Class ---
@@ -50,17 +48,6 @@ class ApocalypticaRobot:
         # --- World Model ---
         self.world_model = WorldModel() # Manages robot state, map, objects
 
-        gtts_tts_client = GttsTTSClient(lang="en", default_playback_speed=1.15)
-
-        # --- AI and Task Management ---
-        self.gemini_client = GeminiClient(
-           api_key= os.getenv("GEMINI_SECRET_KEY") or self.config['api_keys']['gemini'],
-           max_output_tokens=self.config['ai']['gemini'].get('max_tokens', 150),
-           temperature=self.config['ai']['gemini'].get('temperature', 0.7),
-           max_history_turns=self.config['ai']['gemini'].get('max_history_turns', 'ALL'),
-           config=self.config.get('robot', {}),
-           speech_assistant=gtts_tts_client
-        )
         # self.nlu_processor = NLUProcessor() # For parsing commands from text
         self.task_manager = TaskManager(
             world_model=self.world_model,
@@ -73,9 +60,9 @@ class ApocalypticaRobot:
             # vision_communicator=self.vision_comm, # To send commands/status to Vision
         )
         self.dialogue_manager = DialogueManager(
-            gemini_client=self.gemini_client,
             vision_communicator=self.vision_comm,
             world_model=self.world_model,
+            config=self.config,
             task_manager=self.task_manager
         ) # Manages conversation flow and speaks via Vision
 

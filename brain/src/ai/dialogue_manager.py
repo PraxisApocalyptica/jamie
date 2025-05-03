@@ -9,14 +9,15 @@
 # - Vision Communicator: To send text back to the Vision app for TTS.
 # - (Optional) Personality module: To influence response style and proactive behavior.
 import time
-import threading
 import logging
+import os
 
 from typing import Dict, Any, Optional
+from src.ai.clients.gemini.client import GeminiClient
+from src.ai.mind.hive_mind import HiveMind
+from src.ai.clients.speech.google_tts import GttsTTSClient
 from src.ai.task_manager import TaskManager
 # from .nlu_processor import NLUProcessor # Import if not passed in __init__
-# from .task_manager import TaskManager # Import if not passed in __init__
-# from .gemini_client import GeminiAPIClient # Import if not passed in __init__
 # from ..communication.phone_wifi_server import PhoneWifiServer # Import for speaking
 # from ..perception.world_model import WorldModel # Import for context
 
@@ -27,7 +28,6 @@ class DialogueManager:
         self,
         # nlu_processor: NLUProcessor,
         task_manager: TaskManager, # TaskManager or similar
-        gemini_client: Any, # GeminiAPIClient or similar
         vision_communicator: Any, # PhoneWifiServer or similar
         world_model: Any, # WorldModel or similar
         config=None
@@ -36,7 +36,6 @@ class DialogueManager:
         # self.nlu_processor = nlu_processor # If NLU processing happens here
         self._logger = logging.getLogger(self.__class__.__name__)
         self.task_manager = task_manager
-        self.gemini_client = gemini_client
         self.vision_communicator = vision_communicator
         self.world_model = world_model
         self.config = config
@@ -45,10 +44,32 @@ class DialogueManager:
         self.start_interaction()
 
     def start_interaction(self):
-        # GeminiClient already manages the raw turn history, this is for higher-level context.
-        thread = threading.Thread(target=self.gemini_client.start)
-        thread.start()
-        thread.join()
+        gtts_tts_client = GttsTTSClient(lang="en", default_playback_speed=1.15)
+
+
+        collective_config = {
+            "collective_name": "The Synthesis Council",
+            "collective_purpose": "brainstorm solutions and make recommendations",
+            "name": "AI Member",
+            "purpose": "contribute to collective decisions",
+        }
+        api_key = os.getenv("GEMINI_SECRET_KEY") or self.config['api_keys']['gemini']
+        hive_mind = HiveMind(
+            api_key=api_key,
+            config=collective_config,
+        )
+        # --- AI and Task Management ---
+        self.ai_client = GeminiClient(
+           api_key= api_key,
+           max_output_tokens=self.config['ai']['gemini'].get('max_tokens', 150),
+           temperature=self.config['ai']['gemini'].get('temperature', 0.7),
+           max_history_turns=self.config['ai']['gemini'].get('max_history_turns', 'ALL'),
+           config=self.config.get('robot', {}),
+           hive_mind=hive_mind,
+           speech_assistant=gtts_tts_client,
+           remember_memories=True,
+        )
+        self.task_manager.assign_task(self.ai_client.start)
         self.task_manager.sleep()
 
     def handle_user_command(
