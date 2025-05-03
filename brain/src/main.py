@@ -21,9 +21,9 @@ from src.config import load_config
 # from src.robotics.path_planning import PathPlanning
 # from src.robotics.grasp_planning import GraspPlanning
 # from src.ai.nlu_processor import NLUProcessor
-from src.ai.dialogue_manager import DialogueManager
+from src.ai.interactions import Interactions
 # from src.ai.personality import Personality # If separate
-from src.ai.clients.gemini.client import GeminiClient # For general chat
+
 
 # --- Main Robot Class ---
 class ApocalypticaRobot:
@@ -33,7 +33,6 @@ class ApocalypticaRobot:
         self.config = load_config(config_path)
         robot = self.config.get('robot', {})
         self.name = robot.get('name', 'Jamie')
-        self._logger.info(f"Initializing {self.name}...")
 
         # --- Communication ---
         self.motion_comm = ArduinoSerialCommunicator(
@@ -49,14 +48,6 @@ class ApocalypticaRobot:
         # --- World Model ---
         self.world_model = WorldModel() # Manages robot state, map, objects
 
-        # --- AI and Task Management ---
-        self.gemini_client = GeminiClient(
-           api_key= os.getenv("GEMINI_SECRET_KEY") or self.config['api_keys']['gemini'],
-           max_output_tokens=self.config['ai']['gemini'].get('max_tokens', 150),
-           temperature=self.config['ai']['gemini'].get('temperature', 0.7),
-           max_history_turns=self.config['ai']['gemini'].get('max_history_turns', 20),
-           config=self.config.get('robot', {})
-        )
         # self.nlu_processor = NLUProcessor() # For parsing commands from text
         self.task_manager = TaskManager(
             world_model=self.world_model,
@@ -65,13 +56,13 @@ class ApocalypticaRobot:
             # kinematics_solver=ArmKinematics(...),
             # path_planner=PathPlanning(...),
             # grasp_planner=GraspPlanning(...),
-            # dialogue_manager=self.dialogue_manager, # To generate spoken responses
+            # interactions=self.interactions, # To generate spoken responses
             # vision_communicator=self.vision_comm, # To send commands/status to Vision
         )
-        self.dialogue_manager = DialogueManager(
-            gemini_client=self.gemini_client,
+        self.interactions = Interactions(
             vision_communicator=self.vision_comm,
             world_model=self.world_model,
+            config=self.config,
             task_manager=self.task_manager
         ) # Manages conversation flow and speaks via Vision
 
@@ -84,8 +75,6 @@ class ApocalypticaRobot:
         # self.object_processor = ObjectProcessor(world_model=self.world_model, ...)
         # self.slam_localization = SlamLocalization(world_model=self.world_model, ...)
 
-
-        self._logger.info(f"{self.name} initialized.")
 
     def _handle_vision_data(self, data: Dict[str, Any]) -> None:
         """Callback method to process data received from the Vision (Android/iOS) app."""
@@ -126,15 +115,15 @@ class ApocalypticaRobot:
                  # <<<<< PROCESS COMMAND >>>>>
                  # 1. If phone didn't do NLU, process it here:
                  #    intent, entities = self.nlu_processor.process(command_text)
-                 # 2. Pass the intent and entities to the Dialogue Manager/TaskManager
-                 #    self.dialogue_manager.handle_user_command(intent, entities, command_text) # Dialogue manager decides if it's chat or task
-                 #    # Or directly trigger TaskManager if Dialogue Manager isn't the first step:
+                 # 2. Pass the intent and entities to the Interactions/TaskManager
+                 #    self.interactions.handle_user_command(intent, entities, command_text) # Interactions decides if it's chat or task
+                 #    # Or directly trigger TaskManager if Interactions isn't the first step:
                  #    # self.task_manager.set_goal_from_command(intent, entities)
                  pass # Placeholder
             elif command_intent: # If phone sent pre-parsed intent
                  self._logger.debug(f"Received parsed command from Vision: Intent='{command_intent}' Entities={command_entities}")
                  # <<<<< PROCESS PARSED COMMAND >>>>>
-                 # self.dialogue_manager.handle_user_command(command_intent, command_entities, command_text=None)
+                 # self.interactions.handle_user_command(command_intent, command_entities, command_text=None)
                  # or self.task_manager.set_goal_from_command(command_intent, command_entities)
                  pass # Placeholder
 
@@ -142,8 +131,8 @@ class ApocalypticaRobot:
              # Notification from Vision that it finished speaking a response sent earlier
              utterance_id = data.get("utterance_id")
              self._logger.debug(f"Vision confirmed speaking done for utterance ID: {utterance_id}")
-             # TODO: Dialogue Manager or TaskManager might need this feedback to continue a turn or plan
-             # self.dialogue_manager.on_speaking_finished(utterance_id) # Example
+             # TODO: Interactions or TaskManager might need this feedback to continue a turn or plan
+             # self.interactions.on_speaking_finished(utterance_id) # Example
              pass # Placeholder
 
 
@@ -200,7 +189,7 @@ class ApocalypticaRobot:
 
         # --- Main Loop ---
         try:
-            while True:
+            while self.task_manager.stay_awake():
                 # This main loop is the heart of the Brain's processing cycle.
                 # It can run periodic tasks and check for conditions.
 
@@ -222,7 +211,7 @@ class ApocalypticaRobot:
 
 
                 # Keep the main loop alive and responsive
-                time.sleep(0.05) # Adjust loop frequency (e.g., 20 Hz)
+                time.sleep(5)
 
         except KeyboardInterrupt:
             self._logger.warning("\nCtrl+C detected. Shutting down.")

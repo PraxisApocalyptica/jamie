@@ -4,7 +4,7 @@ This repository contains the code and documentation for Jamie, a mobile robotic 
 
 The project utilizes a multi-device architecture:
 - **Vision (Cross-Platform App):** Runs on a smartphone (Android/iOS). The app handles perception (camera feed, SLAM via ARCore/ARKit, AI vision like YOLO-Seg) and user interaction (voice input/output, potential UI).
-- **Brain (Raspberry Pi/Jetson):** The central processing unit running high-level AI (Natural Language Understanding, Dialogue Management, Task Planning, LLM interface) and robotics algorithms (SLAM integration, Inverse Kinematics, Grasp Planning, Navigation). Integrates data from additional sensors (3D camera, encoders, force sensor).
+- **Brain (Raspberry Pi/Jetson):** The central processing unit running high-level AI (Natural Language Understanding, Interacting, Task Planning, LLM interface) and robotics algorithms (SLAM integration, Inverse Kinematics, Grasp Planning, Navigation). Integrates data from additional sensors (3D camera, encoders, force sensor).
 - **Motion (Arduino Mega):** The low-level controller executing commands from the Brain to control motors (base movement), servos (pan-tilt, arm joints, gripper), and read basic sensors (bump sensors).
 
 **Project Goal:**

@@ -20,11 +20,9 @@ ai:
   gemini:
     max_tokens: 150       # Max tokens for AI responses
     temperature: 0.7
-    max_history_turns: 20 # Max turns to keep in conversation history
+    max_history_turns: ALL # Max turns to keep in conversation history
   # nlu:
   #   model_path: "path/to/nlu/model"
-  # dialogue:
-  #   # Dialogue specific parameters
   # personality:
   #   # Personality traits or parameters
 

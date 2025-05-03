@@ -12,7 +12,7 @@ def load_config(filepath: str = "config/jamie.yaml") -> Dict[str, Any]:
     try:
         with open(filepath, 'r') as file:
             config = yaml.safe_load(file)
-            _logger.info(f"Configuration loaded from {os.path.abspath(filepath)}")
+            _logger.debug(f"Configuration loaded from {os.path.abspath(filepath)}")
             # TODO: Add validation or default values if needed
             # Example: ensure 'motion' section exists
             if 'motion' not in config or 'serial_port' not in config['motion']:

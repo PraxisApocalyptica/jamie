@@ -1,21 +1,22 @@
-# This module is responsible for translating high-level goals (from NLU/Dialogue Manager)
+# This module is responsible for translating high-level goals (from NLU/Interactions)
 # into sequences of low-level robot actions (a plan).
 # It executes the plan and handles feedback from the Motion controller and sensors.
 
 # It interfaces with:
-# - Dialogue Manager: To receive goals and report task status/outcomes.
+# - Interactions: To receive goals and report task status/outcomes.
 # - World Model: To get current state (robot pose, object info, sensor readings) and map.
 # - Motion Communicator: To send low-level commands (move wheels, move arm joints, etc.) to Arduino.
 # - Robotics Algorithms: To calculate paths, joint angles, grasp poses.
 # - Sensor Handlers: To receive and interpret feedback (e.g., "arrived", "grasp confirmed", "bump").
 
 import logging
-import time # For timing actions or adding delays
+import time
+import threading
 
 from typing import Dict, Any, List, Optional
 
 
-# from .dialogue_manager import DialogueManager # Import if needed for status updates
+# from .interactions import Interactions # Import if needed for status updates
 # from ..communication.arduino_serial import ArduinoSerialCommunicator # Import for motion control
 # from ..perception.world_model import WorldModel # Import for state/map
 # from ..robotics.arm_kinematics import ArmKinematics # Import for IK
@@ -29,17 +30,17 @@ class TaskManager:
         self,
         world_model: Any, # WorldModel instance
         motion_communicator: Any, # ArduinoSerialCommunicator instance
-        # dialogue_manager: Optional[Any] = None, # DialogueManager instance for status updates
+        # interactions: Optional[Any] = None, # Interactions instance for status updates
         # kinematics_solver: Optional[Any] = None, # ArmKinematics instance
         # path_planner: Optional[Any] = None, # PathPlanning instance
         # grasp_planner: Optional[Any] = None, # GraspPlanning instance
         config=None
     ):
         self._logger = logging.getLogger(self.__class__.__name__)
-        self._logger.info("TODO: Initialize Task Manager.")
+        self._logger.debug("TODO: Initialize Task Manager.")
         self.world_model = world_model
         self.motion_communicator = motion_communicator
-        # self.dialogue_manager = dialogue_manager
+        # self.interactions = interactions
         # self.kinematics_solver = kinematics_solver
         # self.path_planner = path_planner
         # self.grasp_planner = grasp_planner
@@ -50,12 +51,18 @@ class TaskManager:
         self._current_step_index: int = 0
         self._step_feedback_pending: bool = False # Flag to wait for feedback for the current step
         self._last_step_start_time: float = 0.0 # For timing out steps
+        self.tasks:  List[threading.Thread] = []
+        self.awake = True
 
         # State variables to track ongoing actions if they are async
         # self._is_navigating: bool = False
         # self._is_arm_moving: bool = False
         # self._expected_feedback_id: Optional[str] = None # What specific feedback are we waiting for?
 
+    def assign_task(self, activity):
+        task = threading.Thread(target=activity)
+        task.start()
+        self.tasks.append(task)
 
     def is_robot_busy(self) -> bool:
         """Checks if the robot is currently executing a task."""
@@ -67,11 +74,11 @@ class TaskManager:
 
     def set_goal(self, goal: Dict[str, Any]) -> None:
         """
-        Receives a new high-level goal (from NLU/Dialogue Manager) and starts planning.
+        Receives a new high-level goal (from NLU/Interactions) and starts planning.
         """
         if self.is_robot_busy():
             self._logger.warning(f"Robot is busy with task {self.world_model.robot_state.current_task}. Cannot set new goal: {goal['intent']}")
-            # TODO: Report busy status back via Dialogue Manager
+            # TODO: Report busy status back via Interactions
             return
 
         self._logger.info(f"Task Manager received new goal: {goal['intent']}")
@@ -83,7 +90,7 @@ class TaskManager:
 
         # Set high-level state
         self.world_model.robot_state.current_task = "PLANNING"
-        # TODO: Report status to Dialogue Manager: self.dialogue_manager.on_task_status_update(task_id=goal.get('id', 'N/A'), status="planning")
+        # TODO: Report status to Interactions: self.interactions.on_task_status_update(task_id=goal.get('id', 'N/A'), status="planning")
 
         # <<<<< IMPLEMENT PLANNING LOGIC HERE >>>>>
         # Based on self._current_goal and the WorldModel's current state (map, object locations),
@@ -101,7 +108,7 @@ class TaskManager:
 
         # 7. Populate the plan with steps (dictionaries describing the action and params)
         self._current_plan = [
-            {"action": "speak", "params": {"text": f"Okay, I will try to pick up the {goal.get('object_id', 'object')}."}}, # Speak confirmation (handled by DialogueManager)
+            {"action": "speak", "params": {"text": f"Okay, I will try to pick up the {goal.get('object_id', 'object')}."}}, # Speak confirmation (handled by Interactions)
             {"action": "navigate_to", "params": {"location": {"x": 1.0, "y": 0.5, "yaw": 0.0}}}, # Example waypoint
             # Add more waypoints if path planning provides them
             {"action": "move_arm_to_angles", "params": {"angles": 0}}, # Example pre-grasp angles (Joint:Angle)
@@ -122,14 +129,14 @@ class TaskManager:
             self.world_model.robot_state.current_task = "EXECUTING_PLAN"
             self._current_step_index = 0 # Start from the first step
             self._logger.debug(f"Plan created with {len(self._current_plan)} steps. Starting execution.")
-            # self.dialogue_manager.on_task_status_update(task_id=goal.get('id', 'N/A'), status="executing", message=f"Starting plan with {len(self._current_plan)} steps.")
+            # self.interactions.on_task_status_update(task_id=goal.get('id', 'N/A'), status="executing", message=f"Starting plan with {len(self._current_plan)} steps.")
             # Execute the first step immediately or wait for process_current_task loop
             # self.process_current_task() # Execute the first step
         else:
             self._current_goal = None # Clear goal if planning failed
             self.world_model.robot_state.current_task = "IDLE"
             self._logger.warning("Planning failed or resulted in an empty plan.")
-            # TODO: Report planning failure back via Dialogue Manager
+            # TODO: Report planning failure back via Interactions
 
     # This method should be called periodically by the main loop or triggered by events
     def process_current_task(self) -> None:
@@ -214,8 +221,8 @@ class TaskManager:
         elif action == "speak":
             text = params.get("text")
             if text:
-                 # Send text to Dialogue Manager, which sends to Vision for TTS
-                 # self.dialogue_manager.respond_speak(text)
+                 # Send text to Interactions, which sends to Vision for TTS
+                 # self.interactions.respond_speak(text)
                  self._logger.debug(f"TODO: Speak: '{text}'")
                  # Need feedback from Vision app when speaking is done ('speech_response_done')
                  self._step_feedback_pending = True # Wait for speak completion
@@ -318,9 +325,9 @@ class TaskManager:
         # <<<<< IMPLEMENT FAILURE HANDLING / REPLANNING >>>>>
         # 1. Stop robot motion as a safety measure:
         self.motion_communicator.send_command("STOP\n")
-        # 2. Report failure via Dialogue Manager:
-        # self.dialogue_manager.on_task_status_update(task_id=self._current_goal.get('id', 'N/A'), status="step_failed", message=f"{action} failed: {reason}")
-        # self.dialogue_manager.respond_speak(f"I failed to {action.replace('_', ' ')}. Reason: {reason}.") # Simple spoken error
+        # 2. Report failure via Interactions:
+        # self.interactions.on_task_status_update(task_id=self._current_goal.get('id', 'N/A'), status="step_failed", message=f"{action} failed: {reason}")
+        # self.interactions.respond_speak(f"I failed to {action.replace('_', ' ')}. Reason: {reason}.") # Simple spoken error
         self._logger.debug(f"TODO: Handle failure of action '{action}' due to '{reason}'.")
 
         # 3. Decide next steps:
@@ -346,17 +353,25 @@ class TaskManager:
         # Set high-level state
         self.world_model.robot_state.current_task = "IDLE"
 
-        # Report outcome via Dialogue Manager
+        # Report outcome via Interactions
         # status = "task_complete" if success else "task_failed"
         # message = "Task finished successfully." if success else "Task failed."
-        # self.dialogue_manager.on_task_status_update(task_id=self._current_goal.get('id', 'N/A') if self._current_goal else 'N/A', status=status, message=message)
-        # if success: self.dialogue_manager.respond_speak(message) # Speak success message
-        # else: self.dialogue_manager.respond_error(message) # Speak failure message
+        # self.interactions.on_task_status_update(task_id=self._current_goal.get('id', 'N/A') if self._current_goal else 'N/A', status=status, message=message)
+        # if success: self.interactions.respond_speak(message) # Speak success message
+        # else: self.interactions.respond_error(message) # Speak failure message
 
         self._logger.debug("Task Manager is now IDLE.")
 
+    def stay_awake(self):
+        return self.awake
 
-    # Optional: Method to handle requests from Dialogue Manager to set a lower priority goal
+    def sleep(self):
+        for task in self.tasks:
+            task.join()
+
+        self.awake = False
+
+    # Optional: Method to handle requests from Interactions to set a lower priority goal
     # def set_goal_low_priority(self, goal: Dict[str, Any]) -> None:
     #    """Sets a goal that can be preempted by higher priority goals."""
     #    # Needs logic to store low priority goals and swap if robot becomes idle or high priority goal arrives.
