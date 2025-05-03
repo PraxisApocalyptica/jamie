@@ -72,10 +72,10 @@ class NLUProcessor:
         self._logger.info(f"NLU Result: Intent='{intent}', Entities={entities}")
         return intent, entities
 
-# --- Example Usage (in DialogueManager or main.py) ---
+# --- Example Usage (in Interactions or main.py) ---
 # # Inside ApocalypticaRobot.__init__
 # # self.nlu_processor = NLUProcessor(config=self.config['ai']['nlu'])
 # # Inside _handle_vision_data when type is "command" and has "text":
 # # text_command = data.get("text")
 # # intent, entities = self.nlu_processor.process(text_command)
-# # self.dialogue_manager.handle_user_command(intent, entities, command_text=text_command)
+# # self.interactions.handle_user_command(intent, entities, command_text=text_command)

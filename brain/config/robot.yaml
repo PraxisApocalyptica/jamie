@@ -23,8 +23,6 @@ ai:
     max_history_turns: ALL # Max turns to keep in conversation history
   # nlu:
   #   model_path: "path/to/nlu/model"
-  # dialogue:
-  #   # Dialogue specific parameters
   # personality:
   #   # Personality traits or parameters
 

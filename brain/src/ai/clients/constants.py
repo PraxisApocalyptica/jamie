@@ -1,5 +1,5 @@
 from cryptography.hazmat.primitives.ciphers import algorithms, modes
-
+from typing import Dict
 import textwrap
 
 
@@ -66,47 +66,124 @@ class COMMANDS:
     SHOW_HISTORY = 'show history'
 
 class HIVE_MIND:
-    DEFAULT_MEMBER_COUNT = 3
-    MAX_DELIBERATION_ROUNDS = 2
-    PROMPTS = {
+    """
+    Represents a collective intelligence (Hive Mind) simulation framework.
+
+    This class defines constants for deliberation parameters and structured
+    prompts to guide AI members through stages of discussion and decision-making,
+    aiming for a specific output format ('capabilities = [...]').
+    """
+    DEFAULT_MEMBER_COUNT: int = 2
+    MAX_DELIBERATION_ROUNDS: int = 2
+
+    PROMPTS: Dict[str, str] = {
         "INITIAL_THOUGHTS": textwrap.dedent("""
-            You are a member of an AI collective tasked with reaching a decision.
-            The topic for deliberation is: {topic}
+            CONTEXT:
+            You are an individual member of an AI collective (Hive Mind).
+            Your task is to provide your initial perspective on a given topic.
+            The collective aims to produce a specific, actionable output format.
 
-            Provide your initial thoughts and proposals regarding this topic.
-            Focus on your individual perspective and expertise. Be concise.
-            State your main idea or suggestion clearly.
-            The decision should be precise and less than 250 characters.
-            It should not include symbols as it has to be spoken.
+            TOPIC FOR DELIBERATION:
+            {topic}
 
-            1. Example with only normal response
-            capabilities = [provide_normal_reply(input)]
-            2. Example which requires only discussion
-            capabilities = [deliberate_and_decide(input)]
-            3. Example which requires only actions
-            capabilities = [plan_action_sequence([{{'interface': 'Movement', 'action': 'move_forward', 'params': {{'distance': 2.0}}}},
-                    {{'interface': 'Perception', 'action': 'capture_image', 'params': {{'sensor_id': 'head_cam'}}}}])]
-            4. Example with normal response and actions
-            capabilities = [provide_normal_reply(input), plan_action_sequence([{{'interface': 'Movement', 'action': 'move_forward', 'params': {{'distance': 2.0}}}},
-                    {{'interface': 'Perception', 'action': 'capture_image', 'params': {{'sensor_id': 'head_cam'}}}}])]
-            5. Example with discussion and actions
-            capabilities = [deliberate_and_decide(input), plan_action_sequence([{{'interface': 'Movement', 'action': 'move_forward', 'params': {{'distance': 2.0}}}},
-                    {{'interface': 'Perception', 'action': 'capture_image', 'params': {{'sensor_id': 'head_cam'}}}}])]
-            input is the initial text provided by user.
-            Response should only contain capabilities and its values like the above example.
-            Example: Move forward
-            capabilities = [plan_action_sequence([{{'interface': 'Movement', 'action': 'move_forward', 'params': {{'distance': 2.0}}}}]
-        """.strip()).strip(),
+            INSTRUCTIONS:
+            1.  Provide your initial thoughts, proposal, or required action regarding the topic.
+            2.  Focus on your unique perspective or assigned expertise (if applicable).
+            3.  Be concise. Your core idea should be clear.
+            4.  **Crucially, format your entire response *only* as a `capabilities` list.**
+            5.  The list should contain one or more 'Cognition' objects, representing thoughts or actions, directly within the list.
+            6.  If proposing a final decision element, ensure it's precise (ideally < 250 chars) and speakable (no symbols).
+
+            DEFINITIONS:
+            - `capabilities`: A Python list `List[Cognition]`. Your entire output MUST be this list structure.
+            - `Cognition`: Base type for mental operations. Your response list should contain calls like these directly:
+                - `provide_normal_reply(prompt=...)`: Generate a text response. 'prompt' holds the text.
+                - `deliberate_and_decide(prompt=...)`: Indicate need for more discussion. 'prompt' states why.
+                - `plan_action_sequence(request=...)`: Define a sequence of actions. 'request' is a list of action dictionaries.
+            - `Action Dictionary`: Format `{{'interface': '...', 'action': '...', 'params': {{...}}}}`. These go *inside* the `request` list for `plan_action_sequence`.
+
+            OUTPUT FORMAT EXAMPLES (`capabilities = [...]`):
+
+            # Example 1: Simple text response
+            capabilities = [provide_normal_reply(prompt="The primary goal should be resource optimization.")]
+
+            # Example 2: Request for further discussion
+            capabilities = [deliberate_and_decide(prompt="We need to clarify the constraints before proceeding.")]
+
+            # Example 3: Proposing specific actions
+            capabilities = [plan_action_sequence(request=[{{'interface': 'Movement', 'action': 'move_forward', 'params': {{'distance': 2.0}}}}, {{'interface': 'Perception', 'action': 'capture_image', 'params': {{'sensor_id': 'head_cam'}}}}])]
+
+            # Example 4: Text response AND actions (Separate items in the list)
+            capabilities = [provide_normal_reply(prompt="Scanning area before moving."), plan_action_sequence(request=[{{'interface': 'Movement', 'action': 'move_forward', 'params': {{'distance': 1.0}}}}, {{'interface': 'Perception', 'action': 'capture_image', 'params': {{'sensor_id': 'front_cam'}}}}])]
+
+            # Example 5: Discussion request AND actions (Separate items in the list)
+            capabilities = [deliberate_and_decide(prompt="Is moving forward the safest option? Let's confirm."), plan_action_sequence(request=[{{'interface': 'Movement', 'action': 'move_forward', 'params': {{'distance': 0.5}} }})])]
+
+            # Example 6: Simple action based on topic (e.g., topic="Move forward 2 meters")
+            # capabilities = [plan_action_sequence(request=[{{'interface': 'Movement', 'action': 'move_forward', 'params': {{'distance': 2.0}} }})])]
+
+            ---
+            IMPORTANT - FORMATTING CLARIFICATION:
+            Avoid nesting cognitive operations like `provide_normal_reply` or `plan_action_sequence` within a generic dictionary structure or within the `request` list of `plan_action_sequence`. They should be direct elements of the main `capabilities` list.
+
+            Example of an INCORRECT format (Do NOT do this):
+            ```
+            capabilities = [ {{'interface': 'Cognition', 'action': 'plan_action_sequence', 'params': {{'request': [{{'interface': 'Movement', 'action': 'move_forward', 'params': {{'distance': 1.0}}}}, {{'interface': 'Cognition', 'action': 'provide_normal_reply', 'params': {{'prompt': 'Climate change is...'}}}}]}}}}]
+            ```
+
+            Correct format for the above intent (Separate Cognition items in the list):
+            ```
+            capabilities = [plan_action_sequence(request=[{{'interface': 'Movement', 'action': 'move_forward', 'params': {{'distance': 1.0}}}}]), provide_normal_reply(prompt='Climate change is a long-term shift in global temperatures and weather patterns, primarily driven by human activities since the 1800s.')]
+            ```
+            ---
+
+            FINAL OUTPUT REQUIREMENT:
+            Your response MUST be *only* the `capabilities = [...]` string.
+            It MUST start exactly with `capabilities = [` and end exactly with `]`.
+            **Do NOT wrap the output in markdown code blocks like ```python ... ``` or ``` ... ```.**
+            Do NOT include any other explanatory text before or after the `capabilities = [...]` string.
+
+            YOUR RESPONSE:
+        """).strip(),
+
         "SYNTHESIZE_AND_DECIDE": textwrap.dedent("""
-            You are a member of an AI collective.
-            The topic under deliberation is: {topic}
-            Other members have provided their initial thoughts. Here are their perspectives:
+            CONTEXT:
+            You are a member of an AI collective (Hive Mind) tasked with synthesis.
+            You have received initial thoughts from other members, provided in the `capabilities = [...]` format.
+            Your goal is to consolidate these perspectives into a single, final output, also in the correct format.
 
+            TOPIC UNDER DELIBERATION:
+            {topic}
+
+            INITIAL THOUGHTS FROM OTHER MEMBERS (provided as raw strings):
             {individual_responses}
 
-            Synthesize these points, considering the different ideas presented.
-            Identify common ground, potential conflicts, or complementary aspects.
-            Based on this collective input, propose a single, consolidated collective decision or recommendation.
-            State the final decision clearly at the end of your response.
+            INSTRUCTIONS:
+            1.  Analyze and synthesize the provided perspectives (`capabilities` lists from others). Identify common ground, conflicts, and complementary ideas presented in their `provide_normal_reply`, `deliberate_and_decide`, and `plan_action_sequence` components.
+            2.  Propose a single, consolidated collective decision, plan, or response.
+            3.  This final output *must* adhere strictly to the required `capabilities = [...]` list format, containing direct calls like `provide_normal_reply(...)`, `plan_action_sequence(...)`, etc.
+            4.  The final decision or core message (e.g., within `provide_normal_reply`) should be precise (ideally < 250 chars) and speakable (no symbols).
+            5.  **Your entire response MUST be formatted *only* as the `capabilities` list.**
+
+            OUTPUT FORMAT (`capabilities = [...]`):
+            Ensure your response strictly follows this structure. It must start with `capabilities = [` and end with `]`.
+
+            EXAMPLE OUTPUT:
+            # Example combining text response and action based on synthesis:
+            capabilities = [provide_normal_reply(prompt="Consensus reached: Proceed cautiously. Executing scan and short move."), plan_action_sequence(request=[{{'interface': 'Perception', 'action': 'scan_area', 'params': {{'range': 5.0}}}}, {{'interface': 'Movement', 'action': 'move_forward', 'params': {{'distance': 0.5}} }}])]
+
+            # Example output if decision is purely informational:
+            # capabilities = [provide_normal_reply(prompt="After review, the best approach is to monitor the situation.")]
+
+            # Example output if decision is purely action-based:
+            # capabilities = [plan_action_sequence(request=[{{'interface': 'System', 'action': 'report_status', 'params': {{'detail_level': 'summary'}} }}])]
+
+            FINAL OUTPUT REQUIREMENT:
+            Your response MUST be *only* the `capabilities = [...]` string.
+            It MUST start exactly with `capabilities = [` and end exactly with `]`.
+            **Do NOT wrap the output in markdown code blocks like ```python ... ``` or ``` ... ```.**
+            Do NOT include any other explanatory text before or after the `capabilities = [...]` string.
+
+            YOUR FINAL RESPONSE:
         """).strip()
     }

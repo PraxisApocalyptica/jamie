@@ -44,10 +44,10 @@ class ExternalApiClient:
     # def get_time(self, timezone=None): ...
     # def get_news(self, category=None): ...
 
-# --- Example Usage (in DialogueManager or TaskManager) ---
+# --- Example Usage (in Interactions or TaskManager) ---
 # # Inside JamieRobot.__init__
 # # self.external_api_client = ExternalApiClient(api_key=self.config['api_keys'].get('weather')) # Load key from config
-# # Inside DialogueManager's response generation logic when user asks "What's the weather in X?"
+# # Inside Interactions's response generation logic when user asks "What's the weather in X?"
 # # location = ... # Extract location from NLU entities
 # # weather_info = self.external_api_client.get_weather(location)
 # # self.speak(weather_info) # Send text to Vision for TTS

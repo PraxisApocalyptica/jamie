@@ -2,7 +2,7 @@
 
 # It could contain:
 # - Personality traits (e.g., cheerful, curious, cautious).
-# - Rules or models to inject personality into responses (used by DialogueManager).
+# - Rules or models to inject personality into responses (used by Interactions).
 # - Logic for proactive behaviors (e.g., commenting on things it sees, greeting people, suggesting activities) - triggered based on World Model state and internal state.
 # - An internal state model (e.g., "energy level", "curiosity level").
 
@@ -38,14 +38,14 @@ class Personality:
         # <<<<< IMPLEMENT PROACTIVE BEHAVIOR TRIGGERS >>>>>
         # Example:
         # if world_model.sees_pet() and world_model.robot_state.current_task == "IDLE":
-        #     # Trigger a task or dialogue:
-        #     # self.dialogue_manager.handle_system_event("sees_pet", {"pet": pet_info})
+        #     # Trigger a task or interaction:
+        #     # self.interactions.handle_system_event("sees_pet", {"pet": pet_info})
         pass
 
-# --- Example Usage (in DialogueManager or main.py) ---
+# --- Example Usage (in Interactions or main.py) ---
 # # Inside ApocalypticaRobot.__init__
 # # self.personality = Personality(config=self.config['ai']['personality'])
-# # Inside DialogueManager before speaking:
+# # Inside Interactions before speaking:
 # # final_text_to_speak = self.personality.influence_response(raw_generated_text)
 # # self._respond_speak(final_text_to_speak)
 # # In main loop:

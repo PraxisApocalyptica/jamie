@@ -1,9 +1,6 @@
 import google.generativeai as genai
-import random
 import logging
 import re
-
-from src.protectors.file_protector import FileProtector # Ensure this path is correct
 
 from google.api_core.exceptions import (
     ClientError, ServerError, RetryError, DeadlineExceeded,
@@ -11,8 +8,8 @@ from google.api_core.exceptions import (
 )
 from typing import Dict, Any, Optional, Union
 
-from src.ai.clients.constants import GEMINI as GeminiConstants, MEMORY, \
-                                                COMMANDS, AI_RESPONSES
+from src.ai.clients.constants import GEMINI as GeminiConstants, MEMORY
+
 from src.ai.clients.gemini.exceptions import (
     GeminiAPIError, GeminiResponseParsingError, GeminiBlockedError
 )
@@ -50,7 +47,6 @@ class GeminiClient(Memory):
         self,
         api_key: str,
         config: Dict[str, Any],
-        speech_assistant: Any, # Use a more specific type hint if available
         model_name: str = GeminiConstants.MODEL,
         max_output_tokens: int = 150,
         temperature: float = 0.7,
@@ -58,8 +54,8 @@ class GeminiClient(Memory):
         memory_file_prefix: Optional[str] = MEMORY.NAME,
         memory_location: str = MEMORY.LOCATION,
         fragment_extension: str = MEMORY.FRAGMENT_EXTENSION,
+        speech_assistant = None,
         remember_memories: bool = False,
-        hive_mind = None,
     ) -> None:
         """
         Initializes the Gemini client, configuring the API, initializing the FileProtector,
@@ -72,7 +68,6 @@ class GeminiClient(Memory):
                      user-provided password or a more secure key management method
                      in production environments.
             config: Configuration dictionary for the agent (e.g., 'name', 'purpose').
-            speech_assistant: An object handling speech synthesis (must have synthesize_and_speak method).
             model_name: The name of the Gemini model to use (e.g., 'gemini-pro').
             max_output_tokens: Maximum number of tokens for the model's response.
             temperature: Controls response randomness (0.0 to 1.0).
@@ -110,7 +105,6 @@ class GeminiClient(Memory):
         self.config = config if config is not None else {}
         self.name: str = self.config.get('name', 'AI')
         self.purpose: str = self.config.get('purpose', 'engage in conversation')
-        self.speech_assistant: Any = speech_assistant
 
         self._api_key: str = api_key
         self._model_name: str = model_name
@@ -130,12 +124,44 @@ class GeminiClient(Memory):
             raise RuntimeError(f"Could not initialize Gemini model: {e}") from e
 
         # The chat object starts empty; loaded memory is added to the *first* prompt.
-        self.hive_mind = hive_mind
         self._chat = self._model.start_chat(history=[])
+        self.speech_assistant = speech_assistant
+        self.start()
         self._logger.debug("Chat session started with empty history.")
 
+    def get_name(self):
+        return self.name
 
-    def communicate(self, user_input_text: str) -> str:
+    def start(self) -> None:
+        """
+        Starts the interactive conversation loop in the console.
+        Loads memory fragments, sends initial context/instructions including loaded fragments,
+        and processes user input until the exit command. Saves the current session's history
+        as a new fragment on exit.
+        """
+        try:
+            recent_thoughts = self.get_recent_thoughts()
+
+            if recent_thoughts:
+                try:
+                    # Send the initial message. The model's response will be added to _chat.history.
+                    # We use communicate directly, which calls the chat object's send_message.
+                    self.communicate(recent_thoughts)
+                    self._logger.info("Initial context message sent successfully.")
+
+                except Exception as e:
+                    self._logger.error(f"Error sending initial context message to model: {e}", exc_info=True)
+
+
+        except (ValueError, ImportError, RuntimeError) as e:
+            # Catch potential errors during client initialization or setup that might occur before the loop
+            self._logger.critical(f"Critical Initialization/Runtime Error before conversation loop started or during execution: {e}", exc_info=True)
+        except Exception as e:
+            # Catch any unhandled exception that might escape the loop or setup
+            self._logger.critical(f"An unhandled exception occurred during client execution: {type(e).__name__}: {e}", exc_info=True)
+
+
+    async def communicate(self, user_input_text: str) -> str:
         """
         Sends a user message to the Gemini API via the chat object, processes the response,
         handles errors, and returns the model's text response.
@@ -224,6 +250,12 @@ class GeminiClient(Memory):
 
 
             self._logger.debug(f"Final processed response text (after cleaning): {model_response_text[:150]}...")
+            if self.speech_assistant and model_response_text:
+                # Speak the model_response_text if speech assistant is available
+                if hasattr(self.speech_assistant, 'synthesize_and_speak'):
+                    self.speech_assistant.synthesize_and_speak(model_response_text)
+                else:
+                    self._logger.debug("speech_assistant is not initialized or missing synthesize_and_speak method.")
             return model_response_text
 
         # --- Specific API Error Handling ---
@@ -271,124 +303,15 @@ class GeminiClient(Memory):
             raise GeminiAPIError(f"An unexpected internal error occurred during message processing: {e}") from e
 
 
-    def start(self) -> None:
-        """
-        Starts the interactive conversation loop in the console.
-        Loads memory fragments, sends initial context/instructions including loaded fragments,
-        and processes user input until the exit command. Saves the current session's history
-        as a new fragment on exit.
-        """
-        try:
-            self._logger.info("\n--- Starting Conversation ---")
-            recent_thoughts = self.get_recent_thoughts()
+    def shutdown(self):
+        # Ensure memory is saved when the program exits the try/except block
+        self._logger.debug("Exiting conversation. Attempting to save current session history as a new memory fragment...")
+        if self.remember_memories:
+            try:
+                self._save_current_memory_as_fragment() # Call the new save method
+                self._logger.debug("Finished storing current session as a memory fragment.")
+            except Exception as e:
+                # Catch any exceptions specifically during the save process
+                self._logger.error(f"An error while saving current session history as a memory fragment: {e}", exc_info=True)
 
-            if recent_thoughts:
-                self._logger.debug(f"Sending initial context/instruction message ({len(recent_thoughts)} chars): {recent_thoughts[:500]}...")
-                try:
-                    # Send the initial message. The model's response will be added to _chat.history.
-                    # We use communicate directly, which calls the chat object's send_message.
-                    response = self.communicate(recent_thoughts)
-                    self._logger.info("Initial context message sent successfully.")
-
-                except Exception as e:
-                    self._logger.error(f"Error sending initial context message to model: {e}", exc_info=True)
-
-            else:
-                self._logger.info("No initial context or instructions to send. Starting with an empty initial message.")
-
-
-            # Start the main conversation loop
-            while True:
-                user_input = input("You: ")
-                user_input = user_input.strip()
-
-                if not user_input:
-                    continue # Skip empty input
-
-                # --- Command Handling ---
-                if user_input.lower() == COMMANDS.EXIT:
-                    break # Exit the loop
-                if user_input.lower() == COMMANDS.CLEAR_HISTORY:
-                    # Note: Renamed to clear_memory, keeping old command name for backward compatibility
-                    self.clear_memory() # Clear memory files and reset chat state
-                    self._logger.info("Memory cleared. Starting fresh session.")
-                    if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
-                        self.speech_assistant.synthesize_and_speak("My memory has been cleared. How can I assist you now?")
-                    continue # Continue to the next input loop iteration
-                if user_input.lower() == COMMANDS.SHOW_HISTORY:
-                    # Display current in-memory session history
-                    self._logger.info("--- Current Session History (in-memory) ---")
-                    history = self.get_memories()
-                    if history:
-                        for i, turn in enumerate(history):
-                            text_snippet = ""
-                            # Concatenate text parts for display snippet
-                            if 'parts' in turn and isinstance(turn['parts'], list):
-                                for part in turn['parts']:
-                                    if isinstance(part, dict) and 'text' in part and isinstance(part['text'], str):
-                                        text_content = part.get('text', '')
-                                        text_snippet += text_content # Append all text parts for the snippet
-                                        # Break after the first text part or concatenate a few for a longer snippet?
-                                        # Let's just show the start of the concatenated text for the turn
-                                        break # Show only the first text part's beginning
-                            display_role = "You" if turn.get('role') == 'user' else self.name
-                            # Limit snippet length for display
-                            snippet_display_length = 100
-                            display_snippet = text_snippet[:snippet_display_length]
-                            if len(text_snippet) > snippet_display_length:
-                                display_snippet += '...'
-                            self._logger.debug(f"[Turn {i+1}] {display_role} ({turn.get('role')}): {display_snippet}")
-                    else:
-                        self._logger.info("Current session history is empty.")
-                    self._logger.info("-------------------------------------------")
-                    continue
-
-                # --- Send User Message to Model ---
-                try:
-                    self.hive_mind.deliberate(user_input)
-                    response = self.communicate(user_input) # Send the user's message
-                    if response:
-                        # Speak the response if speech assistant is available
-                        if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
-                            self.speech_assistant.synthesize_and_speak(response)
-                        else:
-                            self._logger.debug("speech_assistant is not initialized or missing synthesize_and_speak method.")
-                # --- Exception Handling for communicate ---
-                except GeminiBlockedError as e:
-                    self._logger.error(f"Response blocked by safety: {e}")
-                    if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
-                        self.speech_assistant.synthesize_and_speak(random.choice(AI_RESPONSES.SECURITY))
-                except GeminiAPIError as e:
-                    self._logger.error(f"API error during communication: {e}")
-                    if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
-                        self.speech_assistant.synthesize_and_speak(random.choice(AI_RESPONSES.UNAVAILABLE))
-                except GeminiResponseParsingError as e:
-                    self._logger.error(f"Error parsing model response: {e}")
-                    if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
-                        self.speech_assistant.synthesize_and_speak(random.choice(AI_RESPONSES.CONFUSED))
-                except Exception as e:
-                    # Catch any other unexpected errors during a conversation turn
-                    self._logger.critical(f"An unexpected error occurred during conversation turn: {type(e).__name__}: {e}", exc_info=True)
-                    if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
-                        self.speech_assistant.synthesize_and_speak(random.choice(AI_RESPONSES.UNEXPECTED))
-
-        except (ValueError, ImportError, RuntimeError) as e:
-            # Catch potential errors during client initialization or setup that might occur before the loop
-            self._logger.critical(f"Critical Initialization/Runtime Error before conversation loop started or during execution: {e}", exc_info=True)
-        except Exception as e:
-            # Catch any unhandled exception that might escape the loop or setup
-            self._logger.critical(f"An unhandled exception occurred during client execution: {type(e).__name__}: {e}", exc_info=True)
-
-        finally:
-            # Ensure memory is saved when the program exits the try/except block
-            self._logger.debug("Exiting conversation. Attempting to save current session history as a new memory fragment...")
-            if self.remember_memories:
-                try:
-                    self._save_current_memory_as_fragment() # Call the new save method
-                    self._logger.debug("Finished storing current session as a memory fragment.")
-                except Exception as e:
-                    # Catch any exceptions specifically during the save process
-                    self._logger.error(f"An error while saving current session history as a memory fragment: {e}", exc_info=True)
-
-            self.hive_mind.shutdown()
-            self._logger.info("--- Conversation Ended ---")
+        self._logger.info("--- Conversation Ended ---")

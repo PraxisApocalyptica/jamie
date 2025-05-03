@@ -30,20 +30,20 @@ class Cognition(ABC):
         pass
 
     @abstractmethod
-    def deliberate_and_decide(self, topic: str, context: Optional[Any] = None) -> str:
+    def deliberate_and_decide(self, prompt: str, context: Optional[Any] = None) -> str:
         """
         Performs deeper thinking, analysis, or deliberation on a complex topic or task.
         This might involve internal simulations, multi-step reasoning, or consulting
         knowledge bases (like the HiveMind concept).
 
         Args:
-            topic: The complex question, task, or scenario to deliberate on.
+            prompt: The complex question, task, or scenario to deliberate on.
             context: Optional additional context.
 
         Returns:
             A string summarizing the outcome of the deliberation or the final decision.
         """
-        raise NotImplementedError("Deep deliberation is not supported by this cognitive module.")
+        pass
 
     @abstractmethod
     def plan_action_sequence(self, request: List[ActionDetail], context: Optional[Any] = None) -> None:
