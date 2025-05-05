@@ -1,27 +1,19 @@
+import asyncio
 import io
 import logging
+import threading
 
 from gtts import gTTS
 from pydub import AudioSegment
 from pydub.playback import play # Import play function from pydub.playback
 
-# --- 1. Prerequisites ---
-# BEFORE RUNNING THIS CODE:
-# a) Install the necessary libraries:
-#    pip install gtts pydub
-# b) Install FFmpeg or Libav:
-#    - Ubuntu/Debian: sudo apt install ffmpeg
-#    - macOS: brew install ffmpeg
-#    - Windows: Download and add ffmpeg to PATH (https://ffmpeg.org/download.html)
-# c) Requires an active internet connection for gtts synthesis.
-# d) Ensure your system has a compatible audio player that pydub can use (e.g., aplay, afplay).
-# ------------------------
 
 class GttsTTSClient:
     """
     A client class for synthesizing text into speech using the gtts library
     (Google Translate TTS) and playing it back, with optional speed adjustment
     using pydub. Requires internet access. Relies on an unofficial Google endpoint.
+    Modified for asynchronous usage within an asyncio event loop.
     """
 
     def __init__(self, lang="en", default_playback_speed=1.0):
@@ -29,80 +21,105 @@ class GttsTTSClient:
         Initializes the GttsTTSClient.
 
         Args:
-            lang (str): The default language code to use (e.g., "en", "fr", "es").
-                        Find valid codes from Google Translate's supported languages.
-            default_playback_speed (float): The default multiplier for playback
-                                            speed (1.0 is normal, 1.5 is 50% faster).
+            lang (str): Default language code (e.g., "en", "fr", "es").
+            default_playback_speed (float): Default multiplier for playback speed.
         """
         self._logger = logging.getLogger(self.__class__.__name__)
         self._default_lang = lang
         self._default_playback_speed = default_playback_speed
+        # Capture the loop from the thread that *instantiates* the client.
+        # This assumes instantiation happens in the main asyncio thread context.
+        try:
+            self._main_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._logger.warning("GttsTTSClient instantiated outside a running asyncio loop. "
+                                 "Will try to get loop during async call.")
+            self._main_loop = None
+        self._logger.info(f"GttsTTSClient initialized (lang={lang}, speed={default_playback_speed}x)")
 
-    def synthesize_and_speak(self, text, lang=None, playback_speed=None):
+    def _synthesize_and_play_blocking(self, text, lang, playback_speed):
         """
-        Synthesizes text into speech using gtts, adjusts speed with pydub,
-        and plays it using pydub's playback function.
-
-        Args:
-            text (str): The input text to synthesize.
-            lang (str, optional): The language code to use for this specific
-                                  request. Defaults to the language set during
-                                  initialization.
-            playback_speed (float, optional): Multiplier for playback speed for
-                                              this request (1.0 is normal, 1.5 is 50% faster).
-                                              Defaults to the speed set during initialization.
-
-        Returns:
-            bool: True if playback was attempted successfully, False otherwise.
+        Internal blocking function containing the core TTS and playback logic.
+        Designed to be run in an executor thread.
         """
-        # Use default values if not specified for this call
-        current_lang = lang if lang is not None else self._default_lang
-        current_playback_speed = playback_speed if playback_speed is not None else self._default_playback_speed
-
-        self._logger.debug(f"Synthesizing: '{text[:50]}...' using gtts (lang={current_lang}, speed={current_playback_speed}x)...")
-
+        self._logger.debug(f"Executing blocking TTS/play for: '{text[:50]}...' "
+                          f"(Thread: {threading.current_thread().name})")
         try:
             # 1. Synthesize audio using gtts (network request)
-            # Set slow=False for normal speed before any modification
-            tts = gTTS(text=text, lang=current_lang, slow=False)
-
-            # Write the audio data to an in-memory stream
+            tts = gTTS(text=text, lang=lang, slow=False)
             audio_stream_original = io.BytesIO()
             tts.write_to_fp(audio_stream_original)
-            audio_stream_original.seek(0) # Rewind for reading
+            audio_stream_original.seek(0)
 
             # 2. Process audio speed using pydub
-            # Load the audio data from the stream into pydub
             audio_segment = AudioSegment.from_file(audio_stream_original, format="mp3")
-
-            # Apply the speed change
-            # Using speedup method - it handles tempo and pitch adjustment
-            # A speed of 1.0 means no change
-            if current_playback_speed != 1.0:
-                audio_segment = audio_segment.speedup(playback_speed=current_playback_speed)
+            if playback_speed != 1.0:
+                 # Ensure playback_speed is treated as float for pydub
+                 audio_segment = audio_segment.speedup(playback_speed=float(playback_speed))
 
 
-            # --- 3. Speaking using pydub's playback ---
-            self._logger.info("🎤 Speaking...")
-            # The play function is blocking, it waits until playback is finished
-            play(audio_segment)
-
+            # --- 3. Speaking using pydub's blocking playback ---
+            self._logger.info(f"🎤 Speaking... (Thread: {threading.current_thread().name})")
+            play(audio_segment) # This blocks the *executor* thread, not the main loop
+            self._logger.debug(f"Playback finished (Thread: {threading.current_thread().name})")
             return True
 
         except Exception as e:
-            self._logger.critical(f"An error occurred during synthesis, processing, or playback: {e}")
+            # Log exceptions occurring within the executor thread
+            self._logger.error(f"Error during blocking synthesis/playback "
+                               f"(Thread: {threading.current_thread().name}): {e}", exc_info=False) # exc_info=False avoids huge logs from executor threads
             return False
 
+    async def synthesize_and_speak(self, text, lang=None, playback_speed=None):
+        """
+        Asynchronously synthesizes text to speech and plays it back without
+        blocking the main asyncio event loop.
 
-# --- Example Usage (Gtts with Speed Control using pydub playback) ---
-if __name__ == "__main__":
+        Runs the blocking gTTS/pydub operations in an executor thread.
 
-    # Create an instance of the client
-    # You can set the default language and a default speed multiplier here
-    gtts_tts_client = GttsTTSClient(lang="en", default_playback_speed=1.2)
+        Args:
+            text (str): The input text to synthesize.
+            lang (str, optional): Language code for this request. Defaults to init lang.
+            playback_speed (float, optional): Playback speed for this request. Defaults to init speed.
 
-    # Text to speak
-    text_to_speak_1 = "Hello, this is a test using the gtts library."
+        Returns:
+            bool: True if the playback task was successfully scheduled, False on immediate error.
+                  Note: The actual playback might still fail later in the background thread.
+        """
+        if not text:
+            self._logger.warning("synthesize_and_speak called with empty text.")
+            return False
 
-    # Use the client to synthesize and play the text
-    success_1 = gtts_tts_client.synthesize_and_speak(text_to_speak_1)
+        current_lang = lang if lang is not None else self._default_lang
+        current_playback_speed = playback_speed if playback_speed is not None else self._default_playback_speed
+
+        self._logger.debug(f"Scheduling TTS/play: '{text[:50]}...' (lang={current_lang}, speed={current_playback_speed}x)")
+
+        loop = self._main_loop or asyncio.get_running_loop() # Get loop if not captured at init
+        if not loop:
+             self._logger.error("Could not obtain asyncio event loop to run TTS task.")
+             return False
+
+        try:
+            # Schedule the blocking function to run in the default executor
+            await loop.run_in_executor(
+                None,  # Uses the default ThreadPoolExecutor
+                self._synthesize_and_play_blocking,
+                text,
+                current_lang,
+                current_playback_speed
+            )
+            # Note: run_in_executor returns the result of the blocking function,
+            # but we don't strictly need it here unless we want to log success/failure *after* it runs.
+            # The main goal is just to schedule it without blocking await.
+            self._logger.debug(f"Successfully scheduled TTS/play task for: '{text[:50]}...'")
+            return True # Indicates successful scheduling
+
+        except RuntimeError as e:
+             # Catch potential errors if the loop is closed during scheduling
+             self._logger.error(f"RuntimeError scheduling TTS task (loop likely closing): {e}")
+             return False
+        except Exception as e:
+            # Catch any other unexpected errors during scheduling
+            self._logger.error(f"Unexpected error scheduling TTS task: {e}", exc_info=True)
+            return False

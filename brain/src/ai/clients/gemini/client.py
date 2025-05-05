@@ -146,7 +146,10 @@ class GeminiClient(Memory):
                 try:
                     # Send the initial message. The model's response will be added to _chat.history.
                     # We use communicate directly, which calls the chat object's send_message.
-                    self.communicate(recent_thoughts)
+                    self._chat.send_message(
+                        recent_thoughts.strip(),
+                        generation_config=self._generation_config,
+                    )
                     self._logger.info("Initial context message sent successfully.")
 
                 except Exception as e:
@@ -253,7 +256,7 @@ class GeminiClient(Memory):
             if self.speech_assistant and model_response_text:
                 # Speak the model_response_text if speech assistant is available
                 if hasattr(self.speech_assistant, 'synthesize_and_speak'):
-                    self.speech_assistant.synthesize_and_speak(model_response_text)
+                    await self.speech_assistant.synthesize_and_speak(model_response_text)
                 else:
                     self._logger.debug("speech_assistant is not initialized or missing synthesize_and_speak method.")
             return model_response_text

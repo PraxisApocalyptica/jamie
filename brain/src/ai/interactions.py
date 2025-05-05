@@ -117,7 +117,7 @@ class Interactions:
                 self.ai_client.clear_memory() # Clear memory files and reset chat state
                 self._logger.info("Memory cleared. Starting fresh session.")
                 if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
-                    self.speech_assistant.synthesize_and_speak("My memory has been cleared. How can I assist you now?")
+                    await self.speech_assistant.synthesize_and_speak("My memory has been cleared. How can I assist you now?")
                 continue # Continue to the next input loop iteration
             if user_input.lower() == COMMANDS.SHOW_HISTORY:
                 # Display current in-memory session history
@@ -174,20 +174,20 @@ class Interactions:
             except GeminiBlockedError as e:
                 self._logger.error(f"Response blocked by safety: {e}")
                 if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
-                    self.speech_assistant.synthesize_and_speak(random.choice(AI_RESPONSES.SECURITY))
+                    await self.speech_assistant.synthesize_and_speak(random.choice(AI_RESPONSES.SECURITY))
             except GeminiAPIError as e:
                 self._logger.error(f"API error during communication: {e}")
                 if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
-                    self.speech_assistant.synthesize_and_speak(random.choice(AI_RESPONSES.UNAVAILABLE))
+                    await self.speech_assistant.synthesize_and_speak(random.choice(AI_RESPONSES.UNAVAILABLE))
             except GeminiResponseParsingError as e:
                 self._logger.error(f"Error parsing model response: {e}")
                 if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
-                    self.speech_assistant.synthesize_and_speak(random.choice(AI_RESPONSES.CONFUSED))
+                    await self.speech_assistant.synthesize_and_speak(random.choice(AI_RESPONSES.CONFUSED))
             except Exception as e:
                 # Catch any other unexpected errors during a conversation turn
                 self._logger.critical(f"An unexpected error occurred during conversation turn: {type(e).__name__}: {e}", exc_info=True)
                 if self.speech_assistant and hasattr(self.speech_assistant, 'synthesize_and_speak'):
-                    self.speech_assistant.synthesize_and_speak(random.choice(AI_RESPONSES.UNEXPECTED))
+                    await self.speech_assistant.synthesize_and_speak(random.choice(AI_RESPONSES.UNEXPECTED))
 
         self.shutdown()
 
